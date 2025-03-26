@@ -12,6 +12,9 @@ dependencies = [
     "ping3",
     "pysnmp",
     "python-nmap",
+    "selenium",
+    "webdriver-manager",
+    "cryptography"
 ]
 
 [build-system]
