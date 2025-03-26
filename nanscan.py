@@ -1133,6 +1133,167 @@ def resolve_vendors(live_hosts: list[str]) -> dict:
     return vendor_info
 
 
+def web_scan(ip: str, ports: list[int]) -> dict:
+    """Wrapper function for run_web_scan to handle multiple ports."""
+    results = {}
+    for port in ports:
+        if port in [80, 443, 8080, 8443]:  # Only scan common web ports
+            try:
+                result = run_web_scan(ip, port)
+                if result:
+                    results[port] = result
+            except Exception as e:
+                print(f"Error scanning web port {port} on {ip}: {str(e)}", file=sys.stderr)
+    return results
+
+
+def snmp_scan(ip: str) -> dict:
+    """Perform SNMP scanning on a target host."""
+    try:
+        # Common SNMP community strings to try
+        communities = ['public', 'private', 'community']
+        results = {
+            'communities': [],
+            'system_info': {},
+            'interfaces': [],
+            'error': None
+        }
+        
+        for community in communities:
+            try:
+                # Try to get system information
+                system_info = get_snmp_system_info(ip, community)
+                if system_info:
+                    results['communities'].append(community)
+                    results['system_info'] = system_info
+                    
+                    # Try to get interface information
+                    interfaces = get_snmp_interfaces(ip, community)
+                    if interfaces:
+                        results['interfaces'] = interfaces
+                    
+                    # If we found a working community string, we can stop
+                    break
+            except Exception as e:
+                continue
+                
+        if not results['communities']:
+            results['error'] = "No working SNMP community strings found"
+            
+        return results
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def get_snmp_system_info(ip: str, community: str) -> dict:
+    """Get system information via SNMP."""
+    try:
+        # System description
+        system_desc = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
+        )
+        
+        # System uptime
+        uptime = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.3.0'))
+        )
+        
+        # System contact
+        contact = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.4.0'))
+        )
+        
+        # System location
+        location = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.6.0'))
+        )
+        
+        return {
+            'description': str(system_desc[0][0][1]) if system_desc[0][0][1] else 'Unknown',
+            'uptime': str(uptime[0][0][1]) if uptime[0][0][1] else 'Unknown',
+            'contact': str(contact[0][0][1]) if contact[0][0][1] else 'Unknown',
+            'location': str(location[0][0][1]) if location[0][0][1] else 'Unknown'
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def get_snmp_interfaces(ip: str, community: str) -> list:
+    """Get network interface information via SNMP."""
+    try:
+        interfaces = []
+        
+        # Get interface descriptions
+        if_descr = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.2'))
+        )
+        
+        # Get interface MAC addresses
+        if_mac = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6'))
+        )
+        
+        # Get interface operational status
+        if_status = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.8'))
+        )
+        
+        # Process results
+        for i in range(len(if_descr[0][0][1])):
+            interface = {
+                'description': str(if_descr[0][0][1][i]) if if_descr[0][0][1][i] else 'Unknown',
+                'mac_address': str(if_mac[0][0][1][i]) if if_mac[0][0][1][i] else 'Unknown',
+                'status': str(if_status[0][0][1][i]) if if_status[0][0][1][i] else 'Unknown'
+            }
+            interfaces.append(interface)
+            
+        return interfaces
+    except Exception as e:
+        return [{'error': str(e)}]
+
+
+def ssl_scan(ip: str, ports: list[int]) -> dict:
+    """Wrapper function for SSL scanning to handle multiple ports."""
+    results = {}
+    for port in ports:
+        if port in SSL_PORTS:  # Only scan configured SSL ports
+            try:
+                result = get_ssl_info(ip, port)
+                if result:
+                    results[port] = result
+            except Exception as e:
+                print(f"Error scanning SSL port {port} on {ip}: {str(e)}", file=sys.stderr)
+    return results if results else "No SSL certificate info"
+
+
 if __name__ == "__main__":
     exit_code = main()
     sys.exit(exit_code)
