@@ -1,5 +1,3 @@
-.PHONY: install lint clean update-deps
-
 # Install dependencies
 install:
 	python -m pip install --upgrade pip
@@ -32,4 +30,11 @@ outdated:
 venv:
 	python -m venv venv
 	. venv/bin/activate && pip install --upgrade pip
-	. venv/bin/activate && make install 
+	. venv/bin/activate && make install
+
+# Update Nuclei templates
+update-nuclei-templates:
+	@echo "Updating Nuclei templates..."
+	@mkdir -p templates/nuclei
+	@nuclei -update-templates -update-template-dir templates/nuclei
+	@echo "Nuclei templates updated successfully."
