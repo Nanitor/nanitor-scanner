@@ -55,6 +55,46 @@ scan_stats = {
     "lock": threading.Lock()
 }
 
+# Add these imports near the top of the file
+try:
+    from colorama import init, Fore, Back, Style
+    # Initialize colorama
+    init(autoreset=True)
+    HAS_COLOR = True
+except ImportError:
+    # Define fallback color constants if colorama is not available
+    HAS_COLOR = False
+    class DummyColors:
+        def __getattr__(self, name):
+            return ""
+    Fore = DummyColors()
+    Back = DummyColors()
+    Style = DummyColors()
+
+# Add this function to detect terminal color support
+def supports_color():
+    """Returns True if the terminal supports color, False otherwise."""
+    if not HAS_COLOR:
+        return False
+    
+    # Check if we're in a terminal that supports colors
+    if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
+        return True
+    
+    # Check for specific environment variables
+    if 'COLORTERM' in os.environ:
+        return True
+    
+    # Check for specific terminals
+    term = os.environ.get('TERM', '')
+    if term in ('xterm', 'xterm-color', 'xterm-256color', 'linux', 'screen', 'screen-256color'):
+        return True
+    
+    return False
+
+# Set color support flag
+USE_COLOR = supports_color()
+
 # ----------------------- Configuration -----------------------
 # Required system tools
 REQUIRED_TOOLS = {
@@ -250,57 +290,85 @@ def update_status(message=None):
         progress = min(100, int((scan_stats["hosts_scanned"] / total_hosts) * 100))
         
         # Create status line
-        status = f"\r[{elapsed_str}] "
-        status += f"Progress: {progress}% ({scan_stats['hosts_scanned']}/{total_hosts}) | "
-        status += f"TCP: {scan_stats['open_tcp_ports']} | UDP: {scan_stats['open_udp_ports']} | "
-        status += f"Web: {scan_stats['web_services']} | Vulns: {scan_stats['vulnerabilities']} | "
-        status += scan_stats["status_line"]
+        if USE_COLOR:
+            status = f"{Fore.MAGENTA}[{elapsed_str}]{Style.RESET_ALL} "
+            status += f"Progress: {Fore.CYAN}{progress}%{Style.RESET_ALL} ({scan_stats['hosts_scanned']}/{total_hosts}) | "
+            status += f"TCP: {Fore.GREEN}{scan_stats['open_tcp_ports']}{Style.RESET_ALL} | "
+            status += f"UDP: {Fore.GREEN}{scan_stats['open_udp_ports']}{Style.RESET_ALL} | "
+            status += f"Web: {Fore.GREEN}{scan_stats['web_services']}{Style.RESET_ALL} | "
+            status += f"Vulns: {Fore.YELLOW}{scan_stats['vulnerabilities']}{Style.RESET_ALL}"
+            if scan_stats["status_line"]:
+                status += f" | {Fore.WHITE}{scan_stats['status_line']}{Style.RESET_ALL}"
+        else:
+            status = f"[{elapsed_str}] "
+            status += f"Progress: {progress}% ({scan_stats['hosts_scanned']}/{total_hosts}) | "
+            status += f"TCP: {scan_stats['open_tcp_ports']} | UDP: {scan_stats['open_udp_ports']} | "
+            status += f"Web: {scan_stats['web_services']} | Vulns: {scan_stats['vulnerabilities']}"
+            if scan_stats["status_line"]:
+                status += f" | {scan_stats['status_line']}"
         
-        # Pad status line to clear previous longer messages
-        status = status.ljust(100)
-        
-        # Print status line without newline to update in place
-        print(status, end="", flush=True)
+        # Print a complete line with carriage return instead of manipulating the terminal
+        # This approach doesn't leave the terminal in a weird state
+        print(f"\r{status}", end='', flush=True)
 
 
 def log_info(message):
     """Log an informational message."""
-    # Print newline first to avoid overwriting status line
-    print("\n[INFO] " + message, flush=True)
-    update_status()
+    # Print message on a new line
+    print()  # New line
+    if USE_COLOR:
+        print(f"{Fore.BLUE}[INFO]{Style.RESET_ALL} {message}", flush=True)
+    else:
+        print(f"[INFO] {message}", flush=True)
 
 
 def log_debug(message):
     """Log a debug message, only if verbose output is enabled."""
     if VERBOSE_OUTPUT:
-        print("\n[DEBUG] " + message, file=sys.stderr, flush=True)
-        update_status()
+        print()  # New line
+        if USE_COLOR:
+            print(f"{Fore.CYAN}[DEBUG]{Style.RESET_ALL} {message}", file=sys.stderr, flush=True)
+        else:
+            print(f"[DEBUG] {message}", file=sys.stderr, flush=True)
 
 
 def log_warning(message):
     """Log a warning message."""
-    print("\n[WARNING] " + message, file=sys.stderr, flush=True)
-    update_status()
+    print()  # New line
+    if USE_COLOR:
+        print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} {message}", file=sys.stderr, flush=True)
+    else:
+        print(f"[WARNING] {message}", file=sys.stderr, flush=True)
 
 
 def log_error(message):
     """Log an error message."""
-    print("\n[ERROR] " + message, file=sys.stderr, flush=True)
-    update_status()
+    print()  # New line
+    if USE_COLOR:
+        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {message}", file=sys.stderr, flush=True)
+    else:
+        print(f"[ERROR] {message}", file=sys.stderr, flush=True)
 
 
 def log_success(message):
     """Log a success message."""
-    print("\n[SUCCESS] " + message, flush=True)
-    update_status()
+    print()  # New line
+    if USE_COLOR:
+        print(f"{Fore.GREEN}[SUCCESS]{Style.RESET_ALL} {message}", flush=True)
+    else:
+        print(f"[SUCCESS] {message}", flush=True)
 
 
 def log_phase(phase):
     """Log the start of a new scan phase."""
-    print("\n\n" + "=" * 80, flush=True)
-    print(f"PHASE: {phase}", flush=True)
-    print("=" * 80 + "\n", flush=True)
-    update_status(f"Current phase: {phase}")
+    print("\n" + "=" * 80, flush=True)
+    if USE_COLOR:
+        print(f"{Back.BLUE}{Fore.WHITE}PHASE: {phase}{Style.RESET_ALL}", flush=True)
+    else:
+        print(f"PHASE: {phase}", flush=True)
+    print("=" * 80, flush=True)
+    # Update status with phase information
+    scan_stats["status_line"] = f"Phase: {phase}"
 
 
 def port_scan(ip: str) -> dict:
@@ -1135,7 +1203,7 @@ def scan_host(
     if SNMP_PORT in open_ports.get("udp", []):
         update_status(f"SNMP scanning {ip}")
         log_debug(f"  - Checking SNMP on port {SNMP_PORT}...")
-        result["snmp_info"] = snmp_scan(ip)
+        result["snmp_info"] = snmp_scan(ip, open_ports)
     else:
         result["snmp_info"] = "SNMP port not open"
 
@@ -1164,30 +1232,9 @@ def scan_host(
     return result
 
 
-def cleanup_terminal():
-    """Clean up any buffered output and restore terminal state."""
-    try:
-        # Clear any buffered output
-        sys.stdout.flush()
-        sys.stderr.flush()
-        
-        # Force a newline to ensure prompt is on a new line
-        print("\n", end="", flush=True)
-        
-        # Restore terminal settings if they were changed
-        if hasattr(cleanup_terminal, 'old_settings'):
-            try:
-                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, cleanup_terminal.old_settings)
-            except:
-                pass
-    except Exception as e:
-        print(f"\nError during cleanup: {e}", file=sys.stderr, flush=True)
-
-
 def signal_handler(signum, frame):
     """Handle interrupt signals gracefully."""
-    print("\nInterrupt received. Cleaning up...", flush=True)
-    cleanup_terminal()
+    print("\nInterrupt received. Exiting...", flush=True)
     sys.exit(0)
 
 
@@ -1368,6 +1415,86 @@ def get_target_network(interfaces: list[dict[str, str]]) -> str:
         return None
 
 
+# Change status updater to not use termios
+def status_updater():
+    """Background thread that updates the status line periodically."""
+    try:
+        while True:
+            update_status()
+            time.sleep(0.5)  # Update twice per second
+    except Exception as e:
+        print(f"\nStatus updater error: {str(e)}", file=sys.stderr)
+
+
+def print_completion_banner(duration_str):
+    """Print the scan completion banner with colors if supported."""
+    print("\n\n")
+    if USE_COLOR:
+        print(f"{Fore.GREEN}" + "=" * 80 + f"{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}" + "=" * 30 + " SCAN COMPLETE " + "=" * 30 + f"{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}" + "=" * 80 + f"{Style.RESET_ALL}")
+        
+        # Print detailed summary
+        print(f"\n{Fore.CYAN}📊 SCAN SUMMARY{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}⏱️  Duration:{Style.RESET_ALL} {duration_str}")
+        print(f"{Fore.WHITE}🔍 Hosts scanned:{Style.RESET_ALL} {scan_stats['hosts_scanned']} of {scan_stats['hosts_found']} discovered")
+        print(f"{Fore.WHITE}🔌 Open TCP ports found:{Style.RESET_ALL} {scan_stats['open_tcp_ports']}")
+        print(f"{Fore.WHITE}📡 Open UDP ports found:{Style.RESET_ALL} {scan_stats['open_udp_ports']}")
+        print(f"{Fore.WHITE}🌐 Web services detected:{Style.RESET_ALL} {scan_stats['web_services']}")
+        print(f"{Fore.WHITE}⚠️  Vulnerabilities found:{Style.RESET_ALL} {scan_stats['vulnerabilities']}")
+        
+        # Get timestamp for scan completion
+        end_time = datetime.now()
+        print(f"{Fore.WHITE}🕒 Scan completed at:{Style.RESET_ALL} {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{Fore.WHITE}💾 Results saved to:{Style.RESET_ALL} {os.path.abspath('scan_results/')}")
+
+        # If any vulnerabilities were found, highlight them
+        if scan_stats['vulnerabilities'] > 0:
+            print(f"\n{Fore.RED}⚠️  ATTENTION: Vulnerabilities were detected during the scan!{Style.RESET_ALL}")
+            print(f"   {Fore.YELLOW}Please review the detailed scan results for more information.{Style.RESET_ALL}")
+        
+        # Print next steps or recommendations
+        print(f"\n{Fore.CYAN}📋 NEXT STEPS:{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}1. Review detailed scan results in the scan_results directory{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}2. Investigate any discovered vulnerabilities{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}3. Consider securing open ports that aren't needed{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}4. Run regular scans to monitor your network security{Style.RESET_ALL}")
+        
+        print(f"\n{Fore.GREEN}Thank you for using Nanitor Network Scanner!{Style.RESET_ALL}\n")
+    else:
+        print("=" * 80)
+        print("=" * 30 + " SCAN COMPLETE " + "=" * 30)
+        print("=" * 80)
+        
+        # Print detailed summary
+        print("\n📊 SCAN SUMMARY")
+        print(f"⏱️  Duration: {duration_str}")
+        print(f"🔍 Hosts scanned: {scan_stats['hosts_scanned']} of {scan_stats['hosts_found']} discovered")
+        print(f"🔌 Open TCP ports found: {scan_stats['open_tcp_ports']}")
+        print(f"📡 Open UDP ports found: {scan_stats['open_udp_ports']}")
+        print(f"🌐 Web services detected: {scan_stats['web_services']}")
+        print(f"⚠️  Vulnerabilities found: {scan_stats['vulnerabilities']}")
+        
+        # Get timestamp for scan completion
+        end_time = datetime.now()
+        print(f"🕒 Scan completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"💾 Results saved to: {os.path.abspath('scan_results/')}")
+
+        # If any vulnerabilities were found, highlight them
+        if scan_stats['vulnerabilities'] > 0:
+            print("\n⚠️  ATTENTION: Vulnerabilities were detected during the scan!")
+            print("   Please review the detailed scan results for more information.")
+        
+        # Print next steps or recommendations
+        print("\n📋 NEXT STEPS:")
+        print("  1. Review detailed scan results in the scan_results directory")
+        print("  2. Investigate any discovered vulnerabilities")
+        print("  3. Consider securing open ports that aren't needed")
+        print("  4. Run regular scans to monitor your network security")
+        
+        print("\nThank you for using Nanitor Network Scanner!\n")
+
+
 def main():
     """Main function."""
     # Parse command line arguments
@@ -1386,7 +1513,7 @@ def main():
     
     if not is_root():
         print("Error: This script must be run as root for network scanning.")
-        sys.exit(1)
+        return 1
 
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -1394,65 +1521,107 @@ def main():
 
     # Initialize scan stats
     scan_stats["scan_start_time"] = datetime.now()
+    
+    # Start background status updater thread
+    status_thread = threading.Thread(target=status_updater, daemon=True)
+    status_thread.start()
 
     # Get network interfaces
     interfaces = get_local_ips_and_subnets()
     if not interfaces:
         log_error("No network interfaces found.")
-        sys.exit(1)
+        return 1
 
     # Print startup message
-    log_info("\nNanitor Network Scanner")
-    log_info("======================")
-    log_info("Configuration:")
-    log_info(f"- Thread count: {THREAD_COUNT}")
-    log_info(f"- Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
-    log_info(f"- TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
-    log_info(f"- UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
-    log_info(f"- SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
-    log_info(f"- SNMP port: {SNMP_PORT}")
-    log_info(f"- Running as root: {is_root()}")
-    log_info(f"- OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
-    log_info(f"- Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
+    print("\nNanitor Network Scanner")
+    print("======================")
+    print("Configuration:")
+    print(f"- Thread count: {THREAD_COUNT}")
+    print(f"- Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
+    print(f"- TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
+    print(f"- UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
+    print(f"- SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
+    print(f"- SNMP port: {SNMP_PORT}")
+    print(f"- Running as root: {is_root()}")
+    print(f"- OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
+    print(f"- Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
+    
+    print("\nWeb Scanning Tools:")
+    for tool, info in WEB_SCAN_TOOLS.items():
+        print(f"\n{tool}:")
+        print(f"  Description: {info['description']}")
+        print(f"  Command: {info['command']}")
+        if 'features' in info:
+            print("  Features:")
+            for feature in info['features']:
+                print(f"    - {feature}")
+        if 'wordlist' in info:
+            print(f"  Wordlist: {info['wordlist']}")
 
-    log_info("\nFound network interfaces:")
+    print("\nFound network interfaces:")
     for interface in interfaces:
-        log_info(f"- Interface: {interface['interface']}, IP: {interface['ip_address']}, Netmask: {interface['netmask']}")
+        print(f"- Interface: {interface['interface']}, IP: {interface['ip_address']}, Netmask: {interface['netmask']}")
 
     # Get target network - either from command line or from interfaces
     target_network = args.network if args.network else get_target_network(interfaces)
     if not target_network:
         log_error("No valid target network found.")
-        sys.exit(1)
-    log_info(f"\nTarget network: {target_network}\n")
+        return 1
+    print(f"\nTarget network: {target_network}\n")
 
     # Perform network scan
     log_phase("NETWORK DISCOVERY")
-    update_status(f"Scanning network: {target_network}")
+    scan_stats["status_line"] = f"Scanning network: {target_network}"
 
     live_hosts = scan_network(target_network)
     if not live_hosts:
         log_warning("No live hosts found.")
-        sys.exit(0)
+        
+        # Still show completion banner and summary
+        print("\n\n")
+        print("=" * 80)
+        print("=" * 30 + " SCAN COMPLETE " + "=" * 30)
+        print("=" * 80)
+        
+        print("\n📊 SCAN SUMMARY")
+        print(f"⏱️  Duration: {str(timedelta(seconds=int((datetime.now() - scan_stats['scan_start_time']).total_seconds())))}")
+        print("🔍 Hosts scanned: 0 (No live hosts found)")
+        print("🔌 Open TCP ports found: 0")
+        print("📡 Open UDP ports found: 0")
+        print("🌐 Web services detected: 0")
+        print("⚠️  Vulnerabilities found: 0")
+        
+        # Get timestamp for scan completion
+        end_time = datetime.now()
+        print(f"🕒 Scan completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        print("\n📋 NEXT STEPS:")
+        print("  1. Verify network connectivity or try a different network range")
+        print("  2. Check if hosts are blocking ICMP ping requests")
+        print("  3. Try running with the -v flag for verbose output")
+        
+        print("\nThank you for using Nanitor Network Scanner!\n")
+        
+        return 0
 
     scan_stats["hosts_found"] = len(live_hosts)
     log_success(f"Found {len(live_hosts)} live host(s) on {target_network}.")
 
     # Resolve vendor information
     log_phase("MAC VENDOR RESOLUTION")
-    update_status("Resolving vendor information")
+    scan_stats["status_line"] = "Resolving vendor information"
     vendor_info = resolve_vendors(live_hosts)
 
     # Perform OS detection if running as root
     os_info = {}
     #if is_root():
     #    log_phase("OS DETECTION")
-    #    update_status("Performing OS detection")
+    #    scan_stats["status_line"] = "Performing OS detection"
     #    os_info = os_fingerprinting(live_hosts)
 
     # Perform port scanning
     log_phase("PORT SCANNING")
-    update_status("Performing port scanning")
+    scan_stats["status_line"] = "Performing port scanning"
     port_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {executor.submit(port_scan, ip): ip for ip in live_hosts}
@@ -1465,7 +1634,7 @@ def main():
 
     # Perform web scanning
     log_phase("WEB SCANNING")
-    update_status("Performing web scanning")
+    scan_stats["status_line"] = "Performing web scanning"
     web_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
@@ -1481,10 +1650,10 @@ def main():
 
     # Perform SNMP scanning
     log_phase("SNMP SCANNING")
-    update_status("Performing SNMP scanning")
+    scan_stats["status_line"] = "Performing SNMP scanning"
     snmp_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-        future_to_ip = {executor.submit(snmp_scan, ip): ip for ip in live_hosts}
+        future_to_ip = {executor.submit(snmp_scan, ip, port_results): ip for ip in live_hosts}
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
             try:
@@ -1494,7 +1663,7 @@ def main():
 
     # Perform SSL scanning
     log_phase("SSL/TLS SCANNING")
-    update_status("Performing SSL/TLS scanning")
+    scan_stats["status_line"] = "Performing SSL/TLS scanning"
     ssl_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
@@ -1510,24 +1679,18 @@ def main():
 
     # Save results
     log_phase("SAVING RESULTS")
-    update_status("Saving scan results")
+    scan_stats["status_line"] = "Saving scan results"
     save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info)
     
     # Calculate and display scan summary
     scan_duration = datetime.now() - scan_stats["scan_start_time"]
     duration_str = str(timedelta(seconds=int(scan_duration.total_seconds())))
     
-    log_phase("SCAN SUMMARY")
-    log_info(f"Scan completed in {duration_str}")
-    log_info(f"Hosts scanned: {scan_stats['hosts_scanned']}")
-    log_info(f"Open TCP ports found: {scan_stats['open_tcp_ports']}")
-    log_info(f"Open UDP ports found: {scan_stats['open_udp_ports']}")
-    log_info(f"Web services detected: {scan_stats['web_services']}")
-    log_info(f"Vulnerabilities found: {scan_stats['vulnerabilities']}")
-    log_info("Results saved to scan_results/")
+    # Print completion banner
+    print_completion_banner(duration_str)
     
-    # Clean up status line
-    print("\n", flush=True)
+    # Add a newline at the end to ensure terminal prompt is clean
+    print("")
     
     return 0
 
@@ -1548,159 +1711,58 @@ def resolve_vendors(live_hosts: list[str]) -> dict:
     return vendor_info
 
 
-def snmp_scan(ip: str) -> dict:
-    """Perform SNMP scanning on a target host."""
-    try:
-        update_status(f"SNMP scanning {ip}")
-        # Common SNMP community strings to try
-        communities = ['public', 'private', 'community']
-        results = {
-            'communities': [],
-            'system_info': {},
-            'interfaces': [],
-            'error': None
-        }
+def snmp_scan(ip, port_results=None):
+    """
+    Perform SNMP scanning on a single host.
+    
+    Args:
+        ip (str): The IP address to scan.
+        port_results (dict, optional): Dictionary containing port scanning results.
         
-        for community in communities:
+    Returns:
+        dict: The SNMP scan results or None if scan failed.
+    """
+    if USE_COLOR:
+        print(f"{Fore.CYAN}[INFO] SNMP scanning {ip}{Style.RESET_ALL}")
+    else:
+        print(f"[INFO] SNMP scanning {ip}")
+        
+    # Check if the host has UDP port 161 open
+    try:
+        if port_results is None or ip not in port_results or 'udp' not in port_results[ip] or 161 not in port_results[ip]['udp']:
+            if VERBOSE_OUTPUT:
+                print(f"[DEBUG] Skipping SNMP scan for {ip} - port 161/udp not open")
+            print(f"[ERROR] SNMP scan failed for {ip}: UDP port 161 not open")
+            return None
+    except Exception as e:
+        print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
+        return None
+    
+    snmp_results = {}
+    try:
+        community_strings = ["public", "private", "cisco", "community", "manager", "admin", "default"]
+        
+        for community in community_strings:
             try:
-                # Try to get system information
                 system_info = get_snmp_system_info(ip, community)
-                if system_info and 'error' not in system_info:
-                    results['communities'].append(community)
-                    results['system_info'] = system_info
+                if system_info:
+                    snmp_results['system_info'] = system_info
+                    snmp_results['community_string'] = community
                     
-                    # Try to get interface information
                     interfaces = get_snmp_interfaces(ip, community)
-                    if interfaces and 'error' not in interfaces[0]:
-                        results['interfaces'] = interfaces
+                    if interfaces:
+                        snmp_results['interfaces'] = interfaces
                     
-                    # If we found a working community string, we can stop
-                    break
-                elif system_info and 'error' in system_info:
-                    if VERBOSE_OUTPUT:
-                        log_debug(f"SNMP error for {ip} with community {community}: {system_info['error']}")
+                    break  # Stop trying other community strings if we succeed
             except Exception as e:
                 if VERBOSE_OUTPUT:
-                    log_debug(f"SNMP error for {ip} with community {community}: {str(e)}")
+                    print(f"[DEBUG] Failed SNMP scan on {ip} with community '{community}': {str(e)}")
                 continue
-                
-        if not results['communities']:
-            results['error'] = "No working SNMP community strings found"
-            
-        return results
     except Exception as e:
-        return {'error': f'SNMP scan error: {str(e)}'}
-
-
-def get_snmp_system_info(ip: str, community: str) -> dict:
-    """Get system information via SNMP."""
-    try:
-        # System description
-        system_desc = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
-        ))
-        
-        # System uptime
-        uptime = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.3.0'))
-        ))
-        
-        # System contact
-        contact = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.4.0'))
-        ))
-        
-        # System location
-        location = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.1.6.0'))
-        ))
-        
-        return {
-            'description': str(system_desc[0][1]) if system_desc[0][1] else 'Unknown',
-            'uptime': str(uptime[0][1]) if uptime[0][1] else 'Unknown',
-            'contact': str(contact[0][1]) if contact[0][1] else 'Unknown',
-            'location': str(location[0][1]) if location[0][1] else 'Unknown'
-        }
-    except Exception as e:
-        error_msg = str(e)
-        if "RequestTimedOut" in error_msg:
-            return {'error': 'SNMP request timed out - device may be blocking SNMP requests'}
-        elif "NoSuchObject" in error_msg:
-            return {'error': 'SNMP object not found - device may not support this MIB'}
-        elif "NoSuchInstance" in error_msg:
-            return {'error': 'SNMP instance not found - device may not support this MIB'}
-        else:
-            return {'error': f'SNMP error: {error_msg}'}
-
-
-def get_snmp_interfaces(ip: str, community: str) -> list:
-    """Get network interface information via SNMP."""
-    try:
-        interfaces = []
-        
-        # Get interface descriptions
-        if_descr = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.2'))
-        ))
-        
-        # Get interface MAC addresses
-        if_mac = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6'))
-        ))
-        
-        # Get interface operational status
-        if_status = next(getCmd(
-            SnmpEngine(),
-            CommunityData(community),
-            UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
-            ContextData(),
-            ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.8'))
-        ))
-        
-        # Process results
-        for i in range(len(if_descr[0][1])):
-            interface = {
-                'description': str(if_descr[0][1][i]) if if_descr[0][1][i] else 'Unknown',
-                'mac_address': str(if_mac[0][1][i]) if if_mac[0][1][i] else 'Unknown',
-                'status': str(if_status[0][1][i]) if if_status[0][1][i] else 'Unknown'
-            }
-            interfaces.append(interface)
-            
-        return interfaces
-    except Exception as e:
-        error_msg = str(e)
-        if "RequestTimedOut" in error_msg:
-            return [{'error': 'SNMP request timed out - device may be blocking SNMP requests'}]
-        elif "NoSuchObject" in error_msg:
-            return [{'error': 'SNMP object not found - device may not support this MIB'}]
-        elif "NoSuchInstance" in error_msg:
-            return [{'error': 'SNMP instance not found - device may not support this MIB'}]
-        else:
-            return [{'error': f'SNMP error: {error_msg}'}]
+        print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
+        return None
+    
+    return snmp_results
 
 
 def ssl_scan(ip: str, ports: list[int]) -> dict:
