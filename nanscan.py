@@ -12,7 +12,9 @@ import termios
 import tty
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ipaddress import ip_network
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
+import threading
 
 # Third-party imports
 import nmap
@@ -37,6 +39,21 @@ import xmltodict
 
 # Disable insecure request warnings for HTTPS requests without certificate verification.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Add constant for output verbosity level
+VERBOSE_OUTPUT = False  # Set to False for cleaner output
+# Add counter for progress tracking
+scan_stats = {
+    "hosts_found": 0,
+    "hosts_scanned": 0,
+    "open_tcp_ports": 0,
+    "open_udp_ports": 0,
+    "web_services": 0,
+    "vulnerabilities": 0,
+    "scan_start_time": None,
+    "status_line": "",
+    "lock": threading.Lock()
+}
 
 # ----------------------- Configuration -----------------------
 # Required system tools
@@ -216,17 +233,88 @@ def is_root() -> bool:
     return os.geteuid() == 0
 
 
+def update_status(message=None):
+    """Update the status line with current progress."""
+    if not scan_stats["scan_start_time"]:
+        return
+        
+    with scan_stats["lock"]:
+        if message:
+            scan_stats["status_line"] = message
+            
+        elapsed = datetime.now() - scan_stats["scan_start_time"]
+        elapsed_str = str(timedelta(seconds=int(elapsed.total_seconds())))
+        
+        # Calculate progress percentage
+        total_hosts = scan_stats["hosts_found"] or 1  # Avoid division by zero
+        progress = min(100, int((scan_stats["hosts_scanned"] / total_hosts) * 100))
+        
+        # Create status line
+        status = f"\r[{elapsed_str}] "
+        status += f"Progress: {progress}% ({scan_stats['hosts_scanned']}/{total_hosts}) | "
+        status += f"TCP: {scan_stats['open_tcp_ports']} | UDP: {scan_stats['open_udp_ports']} | "
+        status += f"Web: {scan_stats['web_services']} | Vulns: {scan_stats['vulnerabilities']} | "
+        status += scan_stats["status_line"]
+        
+        # Pad status line to clear previous longer messages
+        status = status.ljust(100)
+        
+        # Print status line without newline to update in place
+        print(status, end="", flush=True)
+
+
+def log_info(message):
+    """Log an informational message."""
+    # Print newline first to avoid overwriting status line
+    print("\n[INFO] " + message, flush=True)
+    update_status()
+
+
+def log_debug(message):
+    """Log a debug message, only if verbose output is enabled."""
+    if VERBOSE_OUTPUT:
+        print("\n[DEBUG] " + message, file=sys.stderr, flush=True)
+        update_status()
+
+
+def log_warning(message):
+    """Log a warning message."""
+    print("\n[WARNING] " + message, file=sys.stderr, flush=True)
+    update_status()
+
+
+def log_error(message):
+    """Log an error message."""
+    print("\n[ERROR] " + message, file=sys.stderr, flush=True)
+    update_status()
+
+
+def log_success(message):
+    """Log a success message."""
+    print("\n[SUCCESS] " + message, flush=True)
+    update_status()
+
+
+def log_phase(phase):
+    """Log the start of a new scan phase."""
+    print("\n\n" + "=" * 80, flush=True)
+    print(f"PHASE: {phase}", flush=True)
+    print("=" * 80 + "\n", flush=True)
+    update_status(f"Current phase: {phase}")
+
+
 def port_scan(ip: str) -> dict:
     """Perform port scanning using nmap with non-blocking output."""
     open_ports = {"tcp": [], "udp": []}
     scan_type = "-sS" if is_root() else "-sT"
 
     try:
-        print(f"    * Starting TCP port scan for {ip}...", file=sys.stderr)
+        update_status(f"TCP scanning {ip}")
+        log_debug(f"Starting TCP port scan for {ip}...")
         # TCP Scan with -Pn to skip ping and additional options for better detection
         tcp_ports = ','.join(map(str, COMMON_TCP_PORTS))
         nmap_tcp_cmd = ["nmap", "-Pn", "-p", tcp_ports, scan_type, "--max-retries", "2", "-T4", "-oX", "-", ip]
-        print(f"    * Running TCP command: {' '.join(nmap_tcp_cmd)}", file=sys.stderr)
+        log_debug(f"Running TCP command: {' '.join(nmap_tcp_cmd)}")
         process = subprocess.run(
             nmap_tcp_cmd,
             stdout=subprocess.PIPE,
@@ -235,10 +323,11 @@ def port_scan(ip: str) -> dict:
             timeout=300
         )
 
-        print(f"    * TCP Scan RC: {process.returncode}", file=sys.stderr)
-        print(f"    * TCP Scan STDOUT[:500]: {process.stdout[:500]}", file=sys.stderr)
-        if process.stderr:
-            print(f"    * Nmap stderr for {ip}: {process.stderr}", file=sys.stderr)
+        log_debug(f"TCP Scan RC: {process.returncode}")
+        if VERBOSE_OUTPUT:
+            log_debug(f"TCP Scan STDOUT[:500]: {process.stdout[:500]}")
+        if process.stderr and VERBOSE_OUTPUT:
+            log_debug(f"Nmap stderr for {ip}: {process.stderr}")
         
         if process.returncode == 0 and process.stdout:
             # Use xmltodict to parse the XML output
@@ -253,17 +342,20 @@ def port_scan(ip: str) -> dict:
                 state = port.get("state", {})
                 if state.get("@state") == "open":
                     port_id = int(port.get("@portid"))
-                    print(f"    * Found open TCP port {port_id} on {ip}", file=sys.stderr)
+                    log_debug(f"Found open TCP port {port_id} on {ip}")
                     open_ports["tcp"].append(port_id)
+                    with scan_stats["lock"]:
+                        scan_stats["open_tcp_ports"] += 1
         else:
-            print(f"    * TCP Scan did not complete successfully for {ip}", file=sys.stderr)
+            log_debug(f"TCP Scan did not complete successfully for {ip}")
 
         # UDP Scan - requires root privileges
         if is_root():
-            print(f"    * Starting UDP port scan for {ip}...", file=sys.stderr)
+            update_status(f"UDP scanning {ip}")
+            log_debug(f"Starting UDP port scan for {ip}...")
             udp_ports = ','.join(map(str, COMMON_UDP_PORTS))
             nmap_udp_cmd = ["nmap", "-Pn", "-p", udp_ports, "-sU", "--max-retries", "3", "-T4", "-oX", "-", ip]
-            print(f"    * Running UDP command: {' '.join(nmap_udp_cmd)}", file=sys.stderr)
+            log_debug(f"Running UDP command: {' '.join(nmap_udp_cmd)}")
             process = subprocess.run(
                 nmap_udp_cmd,
                 stdout=subprocess.PIPE,
@@ -272,8 +364,8 @@ def port_scan(ip: str) -> dict:
                 timeout=600
             )
             
-            if process.stderr:
-                print(f"    * Nmap UDP stderr for {ip}: {process.stderr}", file=sys.stderr)
+            if process.stderr and VERBOSE_OUTPUT:
+                log_debug(f"Nmap UDP stderr for {ip}: {process.stderr}")
             
             if process.returncode == 0 and process.stdout:
                 udp_result = xmltodict.parse(process.stdout)
@@ -285,17 +377,19 @@ def port_scan(ip: str) -> dict:
                     state = port.get("state", {})
                     if state.get("@state") == "open":
                         port_id = int(port.get("@portid"))
-                        print(f"    * Found open UDP port {port_id} on {ip}", file=sys.stderr)
+                        log_debug(f"Found open UDP port {port_id} on {ip}")
                         open_ports["udp"].append(port_id)
+                        with scan_stats["lock"]:
+                            scan_stats["open_udp_ports"] += 1
             else:
-                print(f"    * UDP Scan did not complete successfully for {ip}", file=sys.stderr)
+                log_debug(f"UDP Scan did not complete successfully for {ip}")
         else:
             open_ports["udp"] = "UDP scanning requires root privileges"
 
     except subprocess.TimeoutExpired:
-        print(f"    * Port scan timed out for {ip}", file=sys.stderr)
+        log_error(f"Port scan timed out for {ip}")
     except Exception as e:
-        print(f"    * Port scan failed for {ip}: {str(e)}", file=sys.stderr)
+        log_error(f"Port scan failed for {ip}: {str(e)}")
 
     return open_ports
 
@@ -659,24 +753,30 @@ def run_web_scan(ip: str, port: int) -> dict:
     output_dir = f"scan_results/{ip}"
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"Starting web scan for {url}", file=sys.stderr)
+    log_debug(f"Starting web scan for {url}")
     
     # First verify the port is actually open and responding
     try:
         response = requests.get(url, timeout=5, verify=False)
-        print(f"Port {port} is open and responding with status code {response.status_code}", file=sys.stderr)
+        log_debug(f"Port {port} is open and responding with status code {response.status_code}")
     except requests.exceptions.RequestException as e:
-        print(f"Port {port} is not responding: {str(e)}", file=sys.stderr)
+        log_debug(f"Port {port} is not responding: {str(e)}")
         return None
     
+    with scan_stats["lock"]:
+        scan_stats["web_services"] += 1
+        
     # Run web scanning tools
     for tool, config in WEB_SCAN_TOOLS.items():
         try:
             output_file = f"{output_dir}/{tool}_{port}.json"
             command = config["command"].format(url=url, output_file=output_file)
             
-            print(f"Running {tool} on {url}...", file=sys.stderr)
-            print(f"Command: {command}", file=sys.stderr)
+            update_status(f"Running {tool} on {ip}:{port}")
+            log_debug(f"Running {tool} on {url}...")
+            
+            if VERBOSE_OUTPUT:
+                log_debug(f"Command: {command}")
             
             # Run the tool with shell=True and proper environment
             process = subprocess.run(
@@ -689,10 +789,10 @@ def run_web_scan(ip: str, port: int) -> dict:
             )
             
             # Print tool output for debugging
-            if process.stdout:
-                print(f"{tool} stdout: {process.stdout}", file=sys.stderr)
-            if process.stderr:
-                print(f"{tool} stderr: {process.stderr}", file=sys.stderr)
+            if process.stdout and VERBOSE_OUTPUT:
+                log_debug(f"{tool} stdout: {process.stdout}")
+            if process.stderr and VERBOSE_OUTPUT:
+                log_debug(f"{tool} stderr: {process.stderr}")
             
             # Check if output file was created
             if os.path.exists(output_file):
@@ -700,7 +800,7 @@ def run_web_scan(ip: str, port: int) -> dict:
                     with open(output_file, 'r') as f:
                         content = f.read().strip()
                         if content:  # Only process if file has content
-                            print(f"Found content in {output_file}", file=sys.stderr)
+                            log_debug(f"Found content in {output_file}")
                             if tool == "httpx":
                                 parsed_result = parse_httpx_output(output_file)
                                 if parsed_result:
@@ -717,6 +817,9 @@ def run_web_scan(ip: str, port: int) -> dict:
                                         "output": parsed_result,
                                         "output_file": output_file
                                     }
+                                    # Count vulnerabilities found
+                                    with scan_stats["lock"]:
+                                        scan_stats["vulnerabilities"] += len(parsed_result.get("vulnerabilities", []))
                             else:
                                 results[tool] = {
                                     "status": "success",
@@ -724,17 +827,17 @@ def run_web_scan(ip: str, port: int) -> dict:
                                     "output_file": output_file
                                 }
                         else:
-                            print(f"Output file {output_file} is empty", file=sys.stderr)
+                            log_debug(f"Output file {output_file} is empty")
                 except Exception as e:
-                    print(f"Error reading {tool} output file: {str(e)}", file=sys.stderr)
+                    log_error(f"Error reading {tool} output file: {str(e)}")
             else:
-                print(f"{tool} did not create output file at {output_file}", file=sys.stderr)
+                log_debug(f"{tool} did not create output file at {output_file}")
             
         except subprocess.TimeoutExpired:
-            print(f"{tool} timed out on {url}", file=sys.stderr)
+            log_warning(f"{tool} timed out on {url}")
             continue
         except Exception as e:
-            print(f"Error running {tool} on {url}: {str(e)}", file=sys.stderr)
+            log_error(f"Error running {tool} on {url}: {str(e)}")
             continue
     
     # Take screenshot using Selenium
@@ -746,9 +849,9 @@ def run_web_scan(ip: str, port: int) -> dict:
         }
     
     if results:
-        print(f"Web scan completed for {url} with {len(results)} results", file=sys.stderr)
+        log_debug(f"Web scan completed for {url} with {len(results)} results")
     else:
-        print(f"No web scan results found for {url}", file=sys.stderr)
+        log_debug(f"No web scan results found for {url}")
     
     return results if results else None
 
@@ -966,23 +1069,25 @@ def scan_host(
     Tasks include port scanning, banner grabbing, HTTP header retrieval,
     SNMP probing, and SSL certificate extraction.
     """
-    print(f"\nScanning host: {ip}", file=sys.stderr)
+    update_status(f"Scanning host: {ip}")
+    log_info(f"Scanning host: {ip}")
     result = {"ip": ip}
     result["mac_address"] = mac_addresses.get(ip, "N/A")
     result["mac_vendor"] = mac_vendors.get(ip, "N/A")
     result["os_info"] = os_info.get(ip, "Unknown")
 
     # Port scanning
-    print(f"  - Port scanning {ip}...", file=sys.stderr)
+    log_debug(f"  - Port scanning {ip}...")
     open_ports = port_scan(ip)
     result["open_ports"] = open_ports
-    print(f"  - Found {len(open_ports.get('tcp', []))} open TCP ports and {len(open_ports.get('udp', []))} open UDP ports", file=sys.stderr)
+    log_info(f"Host {ip}: Found {len(open_ports.get('tcp', []))} open TCP ports and {len(open_ports.get('udp', []))} open UDP ports")
 
     # Concurrently grab banners for all open TCP ports
     banners = {}
     tcp_ports = open_ports.get("tcp", [])
     if tcp_ports:
-        print(f"  - Grabbing banners for {len(tcp_ports)} open TCP ports...", file=sys.stderr)
+        update_status(f"Banner grabbing for {ip}")
+        log_debug(f"  - Grabbing banners for {len(tcp_ports)} open TCP ports...")
         with ThreadPoolExecutor(max_workers=len(tcp_ports)) as banner_executor:
             future_to_port = {
                 banner_executor.submit(get_banner, ip, port): port for port in tcp_ports
@@ -999,7 +1104,8 @@ def scan_host(
     http_headers = {}
     web_ports = [port for port in [80, 443, 8080] if port in tcp_ports]
     if web_ports:
-        print(f"  - Checking HTTP headers for {len(web_ports)} web ports...", file=sys.stderr)
+        update_status(f"HTTP checking for {ip}")
+        log_debug(f"  - Checking HTTP headers for {len(web_ports)} web ports...")
         with ThreadPoolExecutor(max_workers=len(web_ports)) as http_executor:
             future_to_port = {
                 http_executor.submit(get_http_headers, ip, port): port for port in web_ports
@@ -1014,10 +1120,11 @@ def scan_host(
 
     # Run web scanning tools if web ports are open
     if web_ports:
-        print(f"  - Running web scans for {len(web_ports)} web ports...", file=sys.stderr)
+        update_status(f"Web scanning {ip}")
+        log_debug(f"  - Running web scans for {len(web_ports)} web ports...")
         web_scan_results = {}
         for port in web_ports:
-            print(f"    * Scanning port {port}...", file=sys.stderr)
+            log_debug(f"    * Scanning port {port}...")
             results = run_web_scan(ip, port)
             if results:  # Only include if we have successful results
                 web_scan_results[port] = results
@@ -1026,7 +1133,8 @@ def scan_host(
 
     # SNMP scanning (if SNMP port is open on UDP)
     if SNMP_PORT in open_ports.get("udp", []):
-        print(f"  - Checking SNMP on port {SNMP_PORT}...", file=sys.stderr)
+        update_status(f"SNMP scanning {ip}")
+        log_debug(f"  - Checking SNMP on port {SNMP_PORT}...")
         result["snmp_info"] = snmp_scan(ip)
     else:
         result["snmp_info"] = "SNMP port not open"
@@ -1035,7 +1143,8 @@ def scan_host(
     ssl_certs = {}
     ssl_tcp_ports = [port for port in tcp_ports if port in SSL_PORTS]
     if ssl_tcp_ports:
-        print(f"  - Checking SSL certificates for {len(ssl_tcp_ports)} SSL ports...", file=sys.stderr)
+        update_status(f"SSL scanning {ip}")
+        log_debug(f"  - Checking SSL certificates for {len(ssl_tcp_ports)} SSL ports...")
         with ThreadPoolExecutor(max_workers=len(ssl_tcp_ports)) as ssl_executor:
             future_to_port = {
                 ssl_executor.submit(get_ssl_info, ip, port): port for port in ssl_tcp_ports
@@ -1048,7 +1157,10 @@ def scan_host(
                     ssl_certs[port] = {"error": str(e)}
     result["ssl_certificates"] = ssl_certs if ssl_certs else "No SSL certificate info"
 
-    print(f"  - Completed scanning {ip}", file=sys.stderr)
+    with scan_stats["lock"]:
+        scan_stats["hosts_scanned"] += 1
+        
+    log_success(f"Completed scanning {ip}")
     return result
 
 
@@ -1187,11 +1299,16 @@ def scan_network(network: str) -> list[str]:
     """Scan a network for live hosts."""
     try:
         # Use ping discovery to find live hosts
+        update_status(f"Discovering hosts on {network}")
         live_hosts = ping_discovery(network)
         if not live_hosts:
+            log_warning("No live hosts found")
             return []
             
+        log_info(f"Discovered {len(live_hosts)} live hosts")
+            
         # Get MAC addresses for live hosts
+        update_status("Resolving MAC addresses")
         mac_addresses = resolve_mac_addresses(live_hosts)
         
         # Look up vendors for live hosts
@@ -1209,13 +1326,23 @@ def scan_network(network: str) -> list[str]:
                 try:
                     result = future.result()
                     results.append(result)
-                    print(json.dumps(result, indent=2), flush=True)
+                    if not VERBOSE_OUTPUT:
+                        # Print a short summary instead of the full JSON
+                        tcp_ports = result.get("open_ports", {}).get("tcp", [])
+                        udp_ports = result.get("open_ports", {}).get("udp", [])
+                        vendor = result.get("mac_vendor", "Unknown")
+                        log_info(f"Host: {ip} ({vendor}) - "
+                               f"TCP ports: {', '.join(map(str, tcp_ports)) if tcp_ports else 'None'}, "
+                               f"UDP ports: {', '.join(map(str, udp_ports)) if udp_ports else 'None'}")
+                    else:
+                        # Print the full JSON in verbose mode
+                        print(json.dumps(result, indent=2), flush=True)
                 except Exception as e:
-                    print(f"Error scanning {ip}: {str(e)}", file=sys.stderr)
+                    log_error(f"Error scanning {ip}: {str(e)}")
         
         return live_hosts
     except Exception as e:
-        print(f"Error scanning network: {str(e)}", file=sys.stderr)
+        log_error(f"Error scanning network: {str(e)}")
         return []
 
 
@@ -1243,6 +1370,20 @@ def get_target_network(interfaces: list[dict[str, str]]) -> str:
 
 def main():
     """Main function."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Nanitor Network Scanner")
+    parser.add_argument("-n", "--network", help="Target network to scan (CIDR notation, e.g. 192.168.1.0/24)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("-t", "--threads", type=int, default=DEFAULT_THREAD_COUNT, help=f"Number of threads (default: {DEFAULT_THREAD_COUNT})")
+    args = parser.parse_args()
+    
+    # Set global variables based on command line arguments
+    global VERBOSE_OUTPUT
+    global THREAD_COUNT
+    
+    VERBOSE_OUTPUT = args.verbose
+    THREAD_COUNT = args.threads
+    
     if not is_root():
         print("Error: This script must be run as root for network scanning.")
         sys.exit(1)
@@ -1251,68 +1392,67 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
+    # Initialize scan stats
+    scan_stats["scan_start_time"] = datetime.now()
+
     # Get network interfaces
     interfaces = get_local_ips_and_subnets()
     if not interfaces:
-        print("Error: No network interfaces found.")
+        log_error("No network interfaces found.")
         sys.exit(1)
 
     # Print startup message
-    print("\nNanitor Network Scanner")
-    print("======================")
-    print("Configuration:")
-    print(f"- Thread count: {THREAD_COUNT}")
-    print(f"- Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
-    print(f"- TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
-    print(f"- UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
-    print(f"- SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
-    print(f"- SNMP port: {SNMP_PORT}")
-    print(f"- Running as root: {is_root()}")
-    print(f"- OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
-    print("\nWeb Scanning Tools:")
-    for tool, info in WEB_SCAN_TOOLS.items():
-        print(f"\n{tool}:")
-        print(f"  Description: {info['description']}")
-        print(f"  Command: {info['command']}")
-        if 'features' in info:
-            print("  Features:")
-            for feature in info['features']:
-                print(f"    - {feature}")
-        if 'wordlist' in info:
-            print(f"  Wordlist: {info['wordlist']}")
+    log_info("\nNanitor Network Scanner")
+    log_info("======================")
+    log_info("Configuration:")
+    log_info(f"- Thread count: {THREAD_COUNT}")
+    log_info(f"- Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
+    log_info(f"- TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
+    log_info(f"- UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
+    log_info(f"- SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
+    log_info(f"- SNMP port: {SNMP_PORT}")
+    log_info(f"- Running as root: {is_root()}")
+    log_info(f"- OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
+    log_info(f"- Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
 
-    print("\nFound network interfaces:")
+    log_info("\nFound network interfaces:")
     for interface in interfaces:
-        print(f"- Interface: {interface['interface']}, IP: {interface['ip_address']}, Netmask: {interface['netmask']}")
+        log_info(f"- Interface: {interface['interface']}, IP: {interface['ip_address']}, Netmask: {interface['netmask']}")
 
-    # Get target network
-    target_network = get_target_network(interfaces)
+    # Get target network - either from command line or from interfaces
+    target_network = args.network if args.network else get_target_network(interfaces)
     if not target_network:
-        print("Error: No valid target network found.")
+        log_error("No valid target network found.")
         sys.exit(1)
-    print(f"\nTarget network: {target_network}\n")
+    log_info(f"\nTarget network: {target_network}\n")
 
     # Perform network scan
-    print(f"Scanning network: {target_network}\n")
+    log_phase("NETWORK DISCOVERY")
+    update_status(f"Scanning network: {target_network}")
+
     live_hosts = scan_network(target_network)
     if not live_hosts:
-        print("No live hosts found.")
+        log_warning("No live hosts found.")
         sys.exit(0)
 
-    print(f"\nFound {len(live_hosts)} live host(s) on {target_network}.\n")
+    scan_stats["hosts_found"] = len(live_hosts)
+    log_success(f"Found {len(live_hosts)} live host(s) on {target_network}.")
 
     # Resolve vendor information
-    print("Resolving vendor information...")
+    log_phase("MAC VENDOR RESOLUTION")
+    update_status("Resolving vendor information")
     vendor_info = resolve_vendors(live_hosts)
 
     # Perform OS detection if running as root
     os_info = {}
     #if is_root():
-    #    print("\nPerforming OS detection (this may take a while)...")
+    #    log_phase("OS DETECTION")
+    #    update_status("Performing OS detection")
     #    os_info = os_fingerprinting(live_hosts)
 
     # Perform port scanning
-    print("\nPerforming port scanning...")
+    log_phase("PORT SCANNING")
+    update_status("Performing port scanning")
     port_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {executor.submit(port_scan, ip): ip for ip in live_hosts}
@@ -1321,10 +1461,11 @@ def main():
             try:
                 port_results[ip] = future.result()
             except Exception as e:
-                print(f"    * Port scan failed for {ip}: {str(e)}", file=sys.stderr)
+                log_error(f"Port scan failed for {ip}: {str(e)}")
 
     # Perform web scanning
-    print("\nPerforming web scanning...")
+    log_phase("WEB SCANNING")
+    update_status("Performing web scanning")
     web_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
@@ -1336,10 +1477,11 @@ def main():
             try:
                 web_results[ip] = future.result()
             except Exception as e:
-                print(f"    * Web scan failed for {ip}: {str(e)}", file=sys.stderr)
+                log_error(f"Web scan failed for {ip}: {str(e)}")
 
     # Perform SNMP scanning
-    print("\nPerforming SNMP scanning...")
+    log_phase("SNMP SCANNING")
+    update_status("Performing SNMP scanning")
     snmp_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {executor.submit(snmp_scan, ip): ip for ip in live_hosts}
@@ -1348,10 +1490,11 @@ def main():
             try:
                 snmp_results[ip] = future.result()
             except Exception as e:
-                print(f"    * SNMP scan failed for {ip}: {str(e)}", file=sys.stderr)
+                log_error(f"SNMP scan failed for {ip}: {str(e)}")
 
     # Perform SSL scanning
-    print("\nPerforming SSL/TLS scanning...")
+    log_phase("SSL/TLS SCANNING")
+    update_status("Performing SSL/TLS scanning")
     ssl_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
@@ -1363,11 +1506,30 @@ def main():
             try:
                 ssl_results[ip] = future.result()
             except Exception as e:
-                print(f"    * SSL scan failed for {ip}: {str(e)}", file=sys.stderr)
+                log_error(f"SSL scan failed for {ip}: {str(e)}")
 
     # Save results
+    log_phase("SAVING RESULTS")
+    update_status("Saving scan results")
     save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info)
-    print("\nScan complete! Results saved to scan_results/")
+    
+    # Calculate and display scan summary
+    scan_duration = datetime.now() - scan_stats["scan_start_time"]
+    duration_str = str(timedelta(seconds=int(scan_duration.total_seconds())))
+    
+    log_phase("SCAN SUMMARY")
+    log_info(f"Scan completed in {duration_str}")
+    log_info(f"Hosts scanned: {scan_stats['hosts_scanned']}")
+    log_info(f"Open TCP ports found: {scan_stats['open_tcp_ports']}")
+    log_info(f"Open UDP ports found: {scan_stats['open_udp_ports']}")
+    log_info(f"Web services detected: {scan_stats['web_services']}")
+    log_info(f"Vulnerabilities found: {scan_stats['vulnerabilities']}")
+    log_info("Results saved to scan_results/")
+    
+    # Clean up status line
+    print("\n", flush=True)
+    
+    return 0
 
 
 def resolve_vendors(live_hosts: list[str]) -> dict:
@@ -1389,6 +1551,7 @@ def resolve_vendors(live_hosts: list[str]) -> dict:
 def snmp_scan(ip: str) -> dict:
     """Perform SNMP scanning on a target host."""
     try:
+        update_status(f"SNMP scanning {ip}")
         # Common SNMP community strings to try
         communities = ['public', 'private', 'community']
         results = {
@@ -1414,9 +1577,11 @@ def snmp_scan(ip: str) -> dict:
                     # If we found a working community string, we can stop
                     break
                 elif system_info and 'error' in system_info:
-                    print(f"    * SNMP error for {ip} with community {community}: {system_info['error']}", file=sys.stderr)
+                    if VERBOSE_OUTPUT:
+                        log_debug(f"SNMP error for {ip} with community {community}: {system_info['error']}")
             except Exception as e:
-                print(f"    * SNMP error for {ip} with community {community}: {str(e)}", file=sys.stderr)
+                if VERBOSE_OUTPUT:
+                    log_debug(f"SNMP error for {ip} with community {community}: {str(e)}")
                 continue
                 
         if not results['communities']:
@@ -1548,7 +1713,7 @@ def ssl_scan(ip: str, ports: list[int]) -> dict:
                 if result:
                     results[port] = result
             except Exception as e:
-                print(f"Error scanning SSL port {port} on {ip}: {str(e)}", file=sys.stderr)
+                log_error(f"Error scanning SSL port {port} on {ip}: {str(e)}")
     return results if results else "No SSL certificate info"
 
 
