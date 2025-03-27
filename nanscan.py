@@ -210,7 +210,12 @@ def get_arp_table() -> dict[str, str]:
     Retrieve the local ARP table mapping IP addresses to MAC addresses.
     """
     try:
-        arp_output = subprocess.check_output(["arp", "-a"], universal_newlines=True)
+        arp_output = run_subprocess_safely(
+            ["arp", "-a"], 
+            stdout=subprocess.PIPE,
+            text=True,
+            check=True
+        ).stdout
     except Exception as e:
         print(f"Error retrieving ARP table: {e}")
         return {}
@@ -371,6 +376,24 @@ def log_phase(phase):
     scan_stats["status_line"] = f"Phase: {phase}"
 
 
+def run_subprocess_safely(cmd, **kwargs):
+    """
+    Run a subprocess while ensuring terminal settings are preserved.
+    This function makes sure stdin is properly set to avoid terminal corruption.
+    """
+    # Always use these settings to prevent terminal corruption
+    default_kwargs = {
+        'stdin': subprocess.DEVNULL,  # Prevents terminal input mode changes
+        'start_new_session': True     # Prevents signal propagation issues
+    }
+    
+    # Override with any provided kwargs
+    subprocess_kwargs = {**default_kwargs, **kwargs}
+    
+    # Run the subprocess with our safe settings
+    return subprocess.run(cmd, **subprocess_kwargs)
+
+
 def port_scan(ip: str) -> dict:
     """Perform port scanning using nmap with non-blocking output."""
     open_ports = {"tcp": [], "udp": []}
@@ -383,10 +406,10 @@ def port_scan(ip: str) -> dict:
         tcp_ports = ','.join(map(str, COMMON_TCP_PORTS))
         nmap_tcp_cmd = ["nmap", "-Pn", "-p", tcp_ports, scan_type, "--max-retries", "2", "-T4", "-oX", "-", ip]
         log_debug(f"Running TCP command: {' '.join(nmap_tcp_cmd)}")
-        process = subprocess.run(
+        process = run_subprocess_safely(
             nmap_tcp_cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,  # Capture stderr for debugging
+            stderr=subprocess.PIPE,
             text=True,
             timeout=300
         )
@@ -424,7 +447,7 @@ def port_scan(ip: str) -> dict:
             udp_ports = ','.join(map(str, COMMON_UDP_PORTS))
             nmap_udp_cmd = ["nmap", "-Pn", "-p", udp_ports, "-sU", "--max-retries", "3", "-T4", "-oX", "-", ip]
             log_debug(f"Running UDP command: {' '.join(nmap_udp_cmd)}")
-            process = subprocess.run(
+            process = run_subprocess_safely(
                 nmap_udp_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -563,7 +586,7 @@ def os_fingerprint(ip: str) -> dict:
     """Detect OS using nmap with non-blocking output."""
     try:
         # Run nmap with OS detection and XML output, redirecting stdout to /dev/null
-        process = subprocess.run(
+        process = run_subprocess_safely(
             ["nmap", "-O", "--max-retries", "1", "--max-scan-delay", "20s", "-oX", "-", ip],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -608,14 +631,14 @@ def check_dependencies():
     # Check required tools
     for tool, config in REQUIRED_TOOLS.items():
         try:
-            subprocess.run(["which", tool], capture_output=True, check=True)
+            run_subprocess_safely(["which", tool], capture_output=True, check=True)
         except subprocess.CalledProcessError:
             missing_tools.append((tool, config))
     
     # Check optional web scanning tools
     for tool, config in WEB_SCAN_TOOLS.items():
         try:
-            subprocess.run(["which", tool], capture_output=True, check=True)
+            run_subprocess_safely(["which", tool], capture_output=True, check=True)
         except subprocess.CalledProcessError:
             missing_optional.append((tool, config))
     
@@ -677,8 +700,13 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
         print("Initializing Chrome driver...", file=sys.stderr)
         
         # Initialize the driver
+        service = Service(ChromeDriverManager().install())
+        # Add these options to prevent terminal issues
+        service_args = ['--quiet', '--log-level=3']
+        service.service_args = service_args
+        
         driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
+            service=service,
             options=chrome_options
         )
         
@@ -846,14 +874,16 @@ def run_web_scan(ip: str, port: int) -> dict:
             if VERBOSE_OUTPUT:
                 log_debug(f"Command: {command}")
             
-            # Run the tool with shell=True and proper environment
-            process = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
+            # Run the tool using our safe subprocess wrapper
+            cmd_parts = command.split()
+            process = run_subprocess_safely(
+                cmd_parts,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=300,  # 5 minute timeout
-                env={**os.environ, 'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}  # Ensure PATH includes Homebrew
+                env={**os.environ, 'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'},  # Ensure PATH includes Homebrew
+                shell=False  # Safer to use split command than shell=True
             )
             
             # Print tool output for debugging
@@ -985,7 +1015,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-project-path", "scan_results",
                 "-json-export", f"scan_results/{target}_{port}_nuclei_web.json"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_web.json", "r") as f:
@@ -1010,7 +1040,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-output", f"scan_results/{target}_{port}_nuclei_ssh.json",
                 "-json-export", f"ssh://{target}:{port}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_ssh.json", "r") as f:
@@ -1035,7 +1065,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-json-export", f"scan_results/{target}_{port}_nuclei_dns.json",
                 "-u", f"dns://{target}:{port}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_dns.json", "r") as f:
@@ -1061,7 +1091,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-output", f"scan_results/{target}_{port}_nuclei_snmp.json",
                 "-u", f"snmp://{target}:{port}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_snmp.json", "r") as f:
@@ -1087,7 +1117,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-output", f"scan_results/{target}_{port}_nuclei_ftp.json",
                 "-u", f"ftp://{target}:{port}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_ftp.json", "r") as f:
@@ -1113,7 +1143,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
                 "-output", f"scan_results/{target}_{port}_nuclei_smb.json",
                 "-u", f"smb://{target}:{port}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
                     with open(f"scan_results/{target}_{port}_nuclei_smb.json", "r") as f:
@@ -1253,14 +1283,14 @@ def check_web_tools() -> dict:
         try:
             if tool == "gobuster":
                 # Gobuster doesn't support --version, use help instead
-                subprocess.run([tool, "help"], capture_output=True, check=True)
+                run_subprocess_safely([tool, "help"], capture_output=True, check=True)
                 available_tools[tool] = {
                     "status": "installed",
                     "description": info["description"]
                 }
             else:
                 # Check if tool is installed
-                subprocess.run([tool, "--version"], capture_output=True, check=True)
+                run_subprocess_safely([tool, "--version"], capture_output=True, check=True)
                 available_tools[tool] = {
                     "status": "installed",
                     "description": info["description"]
