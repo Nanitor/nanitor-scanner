@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Standard library imports
 import argparse
+from dataclasses import dataclass
+from dataclasses import asdict
 import json
 import os
 import signal
@@ -13,6 +15,7 @@ import tty
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ipaddress import ip_network
 from datetime import datetime, timedelta
+from typing import Optional
 import time
 import threading
 
@@ -24,7 +27,6 @@ import scapy.all as scapy
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from mac_vendor_lookup import MacLookup
-from ping3 import ping
 import urllib3
 from pysnmp.hlapi import (
     CommunityData,
@@ -177,26 +179,60 @@ def calculate_network(ip: str, netmask: str) -> str:
     return str(network)
 
 
-def ping_host(ip: str) -> str:
+@dataclass
+class DiscoveredHost:
+    ip: str
+    mac: Optional[str] = None
+    vendor: Optional[str] = None
+
+# nmap ping discovery using nmap -sn
+def nmap_ping_discovery(network: str) -> list[DiscoveredHost]:
     """
-    Ping a single IP to see if it is alive.
+    Discover live hosts on the given network range using Nmap's ping scan.
+    Returns a list of live IP addresses.
     """
+    import xmltodict
+
     try:
-        if ping(ip, timeout=1) is not None:
-            return ip
-    except Exception:
-        pass
-    return None
+        cmd = ["nmap", "-sn", "-oX", "-", network]
+        process = run_subprocess_safely(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60
+        )
+        if process.returncode != 0:
+            log_error(f"Nmap ping discovery failed: {process.stderr.strip()}")
+            return []
 
+        # Parse XML output
+        nmap_data = xmltodict.parse(process.stdout)
+        hosts = []
+        host_entries = nmap_data.get("nmaprun", {}).get("host", [])
+        if isinstance(host_entries, dict):
+            host_entries = [host_entries]
 
-def ping_discovery(network: str) -> list[str]:
-    """
-    Discover live hosts on the given network range via parallel pinging.
-    """
-    net = ip_network(network, strict=False)
-    with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-        results = list(executor.map(ping_host, [str(ip) for ip in net.hosts()]))
-    return [ip for ip in results if ip]
+        for host in host_entries:
+            if host.get("status", {}).get("@state") == "up":
+                ip = None
+                mac = None
+                vendor = None
+                addresses = host.get("address", [])
+                if isinstance(addresses, dict):
+                    addresses = [addresses]
+                for addr in addresses:
+                    if addr.get("@addrtype") == "ipv4":
+                        ip = addr.get("@addr")
+                    elif addr.get("@addrtype") == "mac":
+                        mac = addr.get("@addr")
+                        vendor = addr.get("@vendor")
+                if ip:
+                    hosts.append(DiscoveredHost(ip=ip, mac=mac, vendor=vendor))
+        return hosts
+    except Exception as e:
+        log_error(f"Nmap ping discovery exception: {str(e)}")
+        return []
 
 
 def get_arp_table() -> dict[str, str]:
@@ -1341,13 +1377,14 @@ def check_web_tools() -> dict:
     return available_tools
 
 
-def save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info):
+def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, snmp_results, ssl_results, os_info, vendor_info):
     """Save scan results to JSON files."""
     # Create scan_results directory
     os.makedirs("scan_results", exist_ok=True)
     
     # Save individual host results
-    for ip in live_hosts:
+    for host in live_hosts:
+        ip = host.ip
         host_dir = f"scan_results/{ip}"
         os.makedirs(host_dir, exist_ok=True)
         
@@ -1366,11 +1403,13 @@ def save_results(live_hosts, port_results, web_results, snmp_results, ssl_result
         with open(f"{host_dir}/scan_results.json", "w") as f:
             json.dump(host_results, f, indent=2)
     
+    live_hosts_serializable = [asdict(host) for host in live_hosts]
+
     # Save summary results
     summary = {
         "scan_time": datetime.now().isoformat(),
         "total_hosts": len(live_hosts),
-        "hosts": live_hosts,
+        "hosts": live_hosts_serializable,
         "os_info": os_info,
         "vendor_info": vendor_info,
         "port_results": port_results,
@@ -1384,55 +1423,60 @@ def save_results(live_hosts, port_results, web_results, snmp_results, ssl_result
 
 
 # Do a discovery for host, ping discovery.
-def scan_network(network: str) -> list[str]:
+def discover_live_hosts(network: str) -> list[DiscoveredHost]:
     """Scan a network for live hosts."""
     try:
         # Use ping discovery to find live hosts
         update_status(f"Discovering hosts on {network}")
-        live_hosts = ping_discovery(network)
+        live_hosts = nmap_ping_discovery(network)
+        print(f"live_hosts: {live_hosts}")
         if not live_hosts:
             log_warning("No live hosts found")
             return []
             
         log_info(f"Discovered {len(live_hosts)} live hosts")
-            
-        # Get MAC addresses for live hosts
-        update_status("Resolving MAC addresses")
-        mac_addresses = resolve_mac_addresses(live_hosts)
-        
-        # Look up vendors for live hosts
-        vendors = lookup_mac_vendors(mac_addresses)
-        
-        # Scan each host
-        results = []
-        with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-            future_to_ip = {
-                executor.submit(scan_host, ip, mac_addresses, vendors, {}): ip
-                for ip in live_hosts
-            }
-            for future in as_completed(future_to_ip):
-                ip = future_to_ip[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                    if not VERBOSE_OUTPUT:
-                        # Print a short summary instead of the full JSON
-                        tcp_ports = result.get("open_ports", {}).get("tcp", [])
-                        udp_ports = result.get("open_ports", {}).get("udp", [])
-                        vendor = result.get("mac_vendor", "Unknown")
-                        log_info(f"Host: {ip} ({vendor}) - "
-                               f"TCP ports: {', '.join(map(str, tcp_ports)) if tcp_ports else 'None'}, "
-                               f"UDP ports: {', '.join(map(str, udp_ports)) if udp_ports else 'None'}")
-                    else:
-                        # Print the full JSON in verbose mode
-                        print(json.dumps(result, indent=2), flush=True)
-                except Exception as e:
-                    log_error(f"Error scanning {ip}: {str(e)}")
-        
         return live_hosts
     except Exception as e:
         log_error(f"Error scanning network: {str(e)}")
         return []
+
+
+def scan_live_hosts(live_hosts: list[str]) -> list[dict]:
+    """
+    For each discovered live host, resolve additional details and perform a full scan.
+    Returns a list of scan results.
+    """
+    # Resolve MAC addresses and vendor info once for all hosts
+    update_status("Resolving MAC addresses")
+    mac_addresses = resolve_mac_addresses(live_hosts)
+    update_status("Looking up vendor information")
+    vendors = lookup_mac_vendors(mac_addresses)
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
+        future_to_ip = {
+            executor.submit(scan_host, ip, mac_addresses, vendors, {}): ip
+            for ip in live_hosts
+        }
+        for future in as_completed(future_to_ip):
+            ip = future_to_ip[future]
+            try:
+                result = future.result()
+                results.append(result)
+                if not VERBOSE_OUTPUT:
+                    tcp_ports = result.get("open_ports", {}).get("tcp", [])
+                    udp_ports = result.get("open_ports", {}).get("udp", [])
+                    vendor = result.get("mac_vendor", "Unknown")
+                    log_info(
+                        f"Host: {ip} ({vendor}) - TCP ports: "
+                        f"{', '.join(map(str, tcp_ports)) if tcp_ports else 'None'}, UDP ports: "
+                        f"{', '.join(map(str, udp_ports)) if udp_ports else 'None'}"
+                    )
+                else:
+                    print(json.dumps(result, indent=2), flush=True)
+            except Exception as e:
+                log_error(f"Error scanning {ip}: {str(e)}")
+    return results
 
 
 def get_target_network(interfaces: list[dict[str, str]]) -> str:
@@ -1687,7 +1731,8 @@ Examples:
     log_phase("NETWORK DISCOVERY")
     scan_stats["status_line"] = f"Scanning network: {target_network}"
 
-    live_hosts = scan_network(target_network)
+    live_hosts = discover_live_hosts(target_network)
+
     if not live_hosts:
         log_warning("No live hosts found.")
         
@@ -1718,27 +1763,30 @@ Examples:
         
         return 0
 
-    scan_stats["hosts_found"] = len(live_hosts)
-    log_success(f"Found {len(live_hosts)} live host(s) on {target_network}.")
+    live_ips = [host.ip for host in live_hosts]
+    scan_results = scan_live_hosts(live_ips)
+    scan_stats["hosts_found"] = len(live_ips)
+    log_success(f"Found {len(live_ips)} live host(s) on {target_network}.")
 
     # Resolve vendor information
+    # TODO: Might not be needed if we have this already from live_hosts (if nmap used ARP)
     log_phase("MAC VENDOR RESOLUTION")
     scan_stats["status_line"] = "Resolving vendor information"
-    vendor_info = resolve_vendors(live_hosts)
+    vendor_info = resolve_vendors(live_ips)
 
     # Perform OS detection if running as root
     os_info = {}
     if is_root():
         log_phase("OS DETECTION")
         scan_stats["status_line"] = "Performing OS detection"
-        os_info = os_fingerprinting(live_hosts)
+        os_info = os_fingerprinting(live_ips)
 
     # Perform port scanning
     log_phase("PORT SCANNING")
     scan_stats["status_line"] = "Performing port scanning"
     port_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-        future_to_ip = {executor.submit(port_scan, ip): ip for ip in live_hosts}
+        future_to_ip = {executor.submit(port_scan, ip): ip for ip in live_ips}
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
             try:
@@ -1753,7 +1801,7 @@ Examples:
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
             executor.submit(web_scan, ip, port_results.get(ip, {}).get("tcp", [])): ip
-            for ip in live_hosts
+            for ip in live_ips
         }
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
@@ -1767,7 +1815,7 @@ Examples:
     scan_stats["status_line"] = "Performing SNMP scanning"
     snmp_results = {}
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-        future_to_ip = {executor.submit(snmp_scan, ip, port_results): ip for ip in live_hosts}
+        future_to_ip = {executor.submit(snmp_scan, ip, port_results): ip for ip in live_ips}
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
             try:
@@ -1782,7 +1830,7 @@ Examples:
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
             executor.submit(ssl_scan, ip, port_results.get(ip, {}).get("tcp", [])): ip
-            for ip in live_hosts
+            for ip in live_ips
         }
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
