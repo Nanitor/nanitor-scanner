@@ -98,8 +98,13 @@ USE_COLOR = supports_color()
 # ----------------------- Configuration -----------------------
 # Required system tools
 REQUIRED_TOOLS = {
+}
+
+# Optional web scanning tools
+SCAN_TOOLS = {
     "nmap": {
         "description": "Network mapper for port scanning and OS detection",
+        "required": True,
         "install": {
             "ubuntu": "sudo apt install nmap",
             "macos": "brew install nmap"
@@ -107,17 +112,15 @@ REQUIRED_TOOLS = {
     },
     "arp": {
         "description": "ARP table management",
+        "required": True,
         "install": {
             "ubuntu": "sudo apt install net-tools",
             "macos": "brew install net-tools"
         }
-    }
-}
-
-# Optional web scanning tools
-WEB_SCAN_TOOLS = {
+    },
     "httpx": {
         "command": "httpx -u {url} -json -silent -o {output_file} -title -status-code -tech-detect -web-server -content-length -content-type -server -cname -ip -asn -cdn",
+        "required": False,
         "description": "Modern HTTP toolkit for web scanning",
         "features": [
             "Title detection",
@@ -132,11 +135,13 @@ WEB_SCAN_TOOLS = {
     },
     "gobuster": {
         "command": "gobuster dir -k -u {url} -w wordlists/quicklist.txt -x php,html,txt,asp,aspx,jsp,xml -r --random-agent -q -o {output_file}",
+        "required": False,
         "description": "Directory bruteforcing",
         "wordlist": "wordlists/quicklist.txt"
     },
     "nuclei": {
         "command": "nuclei -ni -u {url} -json-export {output_file} -severity high,critical -etags exploitation,active -silent -rate-limit 50 -concurrency 5",
+        "required": False,
         "description": "Passive vulnerability and misconfiguration scanner"
     }
 }
@@ -394,6 +399,7 @@ def run_subprocess_safely(cmd, **kwargs):
     return subprocess.run(cmd, **subprocess_kwargs)
 
 
+# Uses nmap to do a port scan.
 def port_scan(ip: str) -> dict:
     """Perform port scanning using nmap with non-blocking output."""
     open_ports = {"tcp": [], "udp": []}
@@ -624,27 +630,24 @@ def os_fingerprinting(ip_addresses: list[str]) -> dict[str, str]:
 
 
 def check_dependencies():
-    """Check if all required tools are installed."""
+    """Check if all required and optional scanning tools are installed."""
     missing_tools = []
     missing_optional = []
     
-    # Check required tools
-    for tool, config in REQUIRED_TOOLS.items():
+    # Check for required and optional scanning tools
+    for tool, config in SCAN_TOOLS.items():
         try:
             run_subprocess_safely(["which", tool], capture_output=True, check=True)
         except subprocess.CalledProcessError:
-            missing_tools.append((tool, config))
-    
-    # Check optional web scanning tools
-    for tool, config in WEB_SCAN_TOOLS.items():
-        try:
-            run_subprocess_safely(["which", tool], capture_output=True, check=True)
-        except subprocess.CalledProcessError:
-            missing_optional.append((tool, config))
+            if config["required"]:
+                missing_tools.append((tool, config))
+            else:
+                missing_optional.append((tool, config))
     
     return missing_tools, missing_optional
 
 
+# TODO: Not sure if we need this, can be just in the instructions (README) and Dockerfile...
 def print_installation_instructions(missing_tools, missing_optional):
     """Print installation instructions for missing tools."""
     if missing_tools:
@@ -672,6 +675,8 @@ def print_installation_instructions(missing_tools, missing_optional):
     return True
 
 
+# TODO: Maybe disable this for now... Until we have a way to utilize the screenshot.
+# TODO: httpx can also capture screenshots and might be better suited?
 def take_webpage_screenshot(url: str, output_file: str) -> bool:
     """
     Take a screenshot of a webpage using Selenium.
@@ -747,6 +752,8 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
         return False
 
 
+# TODO: Should we have a httpx module? httpx.py ? or tool_httpx or scantool_httpx? Something like this.
+# TODO: It would be good to keep the parser for httpx along with some other httpx functions, and then we can also add a test case for it...
 def parse_httpx_output(output_file: str) -> dict:
     """Parse httpx JSON output into a structured format."""
     try:
@@ -840,6 +847,7 @@ def parse_nuclei_output(output_file: str) -> dict:
         return None
 
 
+# TODO: Maybe this shouldn't be so focused on web scan? Unless web scan is done differently than some other tools use?
 def run_web_scan(ip: str, port: int) -> dict:
     """Run web scanning tools on the target."""
     results = {}
@@ -863,7 +871,7 @@ def run_web_scan(ip: str, port: int) -> dict:
         scan_stats["web_services"] += 1
         
     # Run web scanning tools
-    for tool, config in WEB_SCAN_TOOLS.items():
+    for tool, config in SCAN_TOOLS.items():
         try:
             output_file = f"{output_dir}/{tool}_{port}.json"
             command = config["command"].format(url=url, output_file=output_file)
@@ -882,7 +890,6 @@ def run_web_scan(ip: str, port: int) -> dict:
                 stderr=subprocess.PIPE,
                 text=True,
                 timeout=300,  # 5 minute timeout
-                env={**os.environ, 'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'},  # Ensure PATH includes Homebrew
                 shell=False  # Safer to use split command than shell=True
             )
             
@@ -897,6 +904,7 @@ def run_web_scan(ip: str, port: int) -> dict:
                 try:
                     with open(output_file, 'r') as f:
                         content = f.read().strip()
+                        # TODO: Maybe the parse_web_scan_tool_output(output, tool) or something?
                         if content:  # Only process if file has content
                             log_debug(f"Found content in {output_file}")
                             if tool == "httpx":
@@ -939,6 +947,7 @@ def run_web_scan(ip: str, port: int) -> dict:
             continue
     
     # Take screenshot using Selenium
+    # TODO: Do we only do the front page /, what if gobuster find sub directories?  Maybe just try to get one good shot?
     screenshot_file = f"{output_dir}/screenshot_{port}.png"
     if take_webpage_screenshot(url, screenshot_file):
         results["screenshot"] = {
@@ -985,6 +994,7 @@ def web_scan(ip: str, ports: list[int]) -> dict:
     return results
 
 
+# TODO: I don't like how we are running nuclei... Nuclei doesn't specify ports, we can specify templates, or template tags.  Possibly we should have just a map of ports to templates or template tags?
 def run_nuclei_scan(target: str, port: int) -> dict:
     """Run Nuclei scan on target with support for multiple protocols."""
     try:
@@ -1159,6 +1169,8 @@ def run_nuclei_scan(target: str, port: int) -> dict:
         return {"error": f"Nuclei scan error: {str(e)}"}
 
 
+# TODO: Bit unclear what this does, is it running all the tools or not?
+# TODO: I think at the moment we dont have the banners?
 def scan_host(
     ip: str, mac_addresses: dict[str, str], mac_vendors: dict[str, str], os_info: dict[str, str]
 ) -> dict:
@@ -1217,6 +1229,7 @@ def scan_host(
     result["http_headers"] = http_headers
 
     # Run web scanning tools if web ports are open
+    # TODO: Maybe we should call the "web scanning tools" maybe like "detailed tools" ?  We've found that the ip is reachable, and some ports open...
     if web_ports:
         update_status(f"Web scanning {ip}")
         log_debug(f"  - Running web scans for {len(web_ports)} web ports...")
@@ -1276,10 +1289,11 @@ def parse_port_list(port_string: str) -> list[int]:
         raise argparse.ArgumentTypeError(f"Invalid port number: {e}")
 
 
+# TODO: This seems a bit redundant, we had this already somewhere...
 def check_web_tools() -> dict:
     """Check if required web scanning tools are installed."""
     available_tools = {}
-    for tool, info in WEB_SCAN_TOOLS.items():
+    for tool, info in SCAN_TOOLS.items():
         try:
             if tool == "gobuster":
                 # Gobuster doesn't support --version, use help instead
@@ -1369,9 +1383,10 @@ def save_results(live_hosts, port_results, web_results, snmp_results, ssl_result
     }
     
     with open("scan_results/summary.json", "w") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summary, f, indent=4)
 
 
+# Do a discovery for host, ping discovery.
 def scan_network(network: str) -> list[str]:
     """Scan a network for live hosts."""
     try:
@@ -1577,7 +1592,7 @@ def main():
     print(f"- Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
     
     print("\nWeb Scanning Tools:")
-    for tool, info in WEB_SCAN_TOOLS.items():
+    for tool, info in SCAN_TOOLS.items():
         print(f"\n{tool}:")
         print(f"  Description: {info['description']}")
         print(f"  Command: {info['command']}")
@@ -1644,10 +1659,10 @@ def main():
 
     # Perform OS detection if running as root
     os_info = {}
-    #if is_root():
-    #    log_phase("OS DETECTION")
-    #    scan_stats["status_line"] = "Performing OS detection"
-    #    os_info = os_fingerprinting(live_hosts)
+    if is_root():
+        log_phase("OS DETECTION")
+        scan_stats["status_line"] = "Performing OS detection"
+        os_info = os_fingerprinting(live_hosts)
 
     # Perform port scanning
     log_phase("PORT SCANNING")
