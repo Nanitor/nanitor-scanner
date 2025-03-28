@@ -24,6 +24,7 @@ import xmltodict
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from mac_vendor_lookup import MacLookup
+from pysnmp.hlapi import CommunityData, ContextData, ObjectIdentity, ObjectType, SnmpEngine, UdpTransportTarget, getCmd
 
 # Disable insecure request warnings for HTTPS requests without certificate verification.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1860,7 +1861,7 @@ def resolve_vendors(live_hosts: list[str]) -> dict:
     return vendor_info
 
 
-def snmp_scan(ip, port_results=None):
+def snmp_scan(ip: str, port_results: dict | None = None) -> dict | None:
     """
     Perform SNMP scanning on a single host.
 
@@ -1882,39 +1883,40 @@ def snmp_scan(ip, port_results=None):
             port_results is None or
             ip not in port_results or
             'udp' not in port_results[ip] or
-            161 not in port_results[ip]['udp']
+            SNMP_PORT not in port_results[ip]['udp']
         ):
             if VERBOSE_OUTPUT:
-                print(f"[DEBUG] Skipping SNMP scan for {ip} - port 161/udp not open")
-            print(f"[ERROR] SNMP scan failed for {ip}: UDP port 161 not open")
-            return None
+                print(f"[DEBUG] Skipping SNMP scan for {ip} - port {SNMP_PORT}/udp not open")
+            return {"error": f"UDP port {SNMP_PORT} not open"}
     except Exception as e:
-        print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
-        return None
+        if VERBOSE_OUTPUT:
+            print(f"[DEBUG] Error checking SNMP port for {ip}: {str(e)}")
+        return {"error": f"Error checking SNMP port: {str(e)}"}
 
     snmp_results = {}
-    try:
-        community_strings = ["public", "private", "cisco", "community", "manager", "admin", "default"]
+    community_strings = ["public", "private", "cisco", "community", "manager", "admin", "default"]
 
-        for community in community_strings:
-            try:
-                system_info = get_snmp_system_info(ip, community)
-                if system_info:
-                    snmp_results['system_info'] = system_info
-                    snmp_results['community_string'] = community
+    for community in community_strings:
+        try:
+            system_info = get_snmp_system_info(ip, community)
+            if system_info:
+                snmp_results['system_info'] = system_info
+                snmp_results['community_string'] = community
 
-                    interfaces = get_snmp_interfaces(ip, community)
-                    if interfaces:
-                        snmp_results['interfaces'] = interfaces
-
-                    break  # Stop trying other community strings if we succeed
-            except Exception as e:
                 if VERBOSE_OUTPUT:
-                    print(f"[DEBUG] Failed SNMP scan on {ip} with community '{community}': {str(e)}")
-                continue
-    except Exception as e:
-        print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
-        return None
+                    print(f"[DEBUG] Successfully scanned {ip} with community '{community}'")
+                break  # Stop trying other community strings if we succeed
+            elif VERBOSE_OUTPUT:
+                print(f"[DEBUG] No system info found for {ip} with community '{community}'")
+        except Exception as e:
+            if VERBOSE_OUTPUT:
+                print(f"[DEBUG] Failed SNMP scan on {ip} with community '{community}': {str(e)}")
+            continue
+
+    if not snmp_results:
+        if VERBOSE_OUTPUT:
+            print(f"[DEBUG] No SNMP data found for {ip} with any community string")
+        return {"error": "No SNMP data found with any community string"}
 
     return snmp_results
 
@@ -1931,6 +1933,49 @@ def ssl_scan(ip: str, ports: list[int]) -> dict:
             except Exception as e:
                 log_error(f"Error scanning SSL port {port} on {ip}: {str(e)}")
     return results if results else "No SSL certificate info"
+
+
+def get_snmp_system_info(ip: str, community: str) -> dict[str, str] | None:
+    """
+    Get system information via SNMP.
+
+    Args:
+        ip (str): Target IP address
+        community (str): SNMP community string
+
+    Returns:
+        Optional[Dict[str, str]]: Dictionary containing system information or None if failed
+    """
+    snmp_data = {}
+    oids = [
+        ('1.3.6.1.2.1.1.1.0', 'sysDescr'),
+        ('1.3.6.1.2.1.1.3.0', 'sysUpTime'),
+        ('1.3.6.1.2.1.1.5.0', 'sysName'),
+        ('1.3.6.1.2.1.1.6.0', 'sysLocation'),
+        ('1.3.6.1.2.1.1.4.0', 'sysContact')
+    ]
+
+    for oid, label in oids:
+        try:
+            error_indication, error_status, error_index, var_binds = next(
+                getCmd(
+                    SnmpEngine(),
+                    CommunityData(community, mpModel=0),
+                    UdpTransportTarget((ip, SNMP_PORT), timeout=2, retries=1),
+                    ContextData(),
+                    ObjectType(ObjectIdentity(oid))
+                )
+            )
+            if error_indication:
+                snmp_data[label] = f"Error: {error_indication}"
+            elif error_status:
+                snmp_data[label] = f"Error: {error_status.prettyPrint()}"
+            else:
+                snmp_data[label] = str(var_binds[0][1])
+        except Exception as e:
+            snmp_data[label] = f"SNMP error: {e}"
+
+    return snmp_data if snmp_data else None
 
 
 if __name__ == "__main__":
