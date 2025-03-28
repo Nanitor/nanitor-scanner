@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # Standard library imports
 import argparse
-from dataclasses import dataclass
-from dataclasses import asdict
 import json
 import os
 import signal
@@ -10,34 +8,22 @@ import socket
 import ssl
 import subprocess
 import sys
-import termios
-import tty
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from ipaddress import ip_network
-from datetime import datetime, timedelta
-from typing import Optional
-import time
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
+from ipaddress import ip_network
 
 # Third-party imports
-import nmap
 import psutil
 import requests
 import scapy.all as scapy
+import urllib3
+import xmltodict
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from mac_vendor_lookup import MacLookup
-import urllib3
-from pysnmp.hlapi import (
-    CommunityData,
-    ContextData,
-    ObjectIdentity,
-    ObjectType,
-    SnmpEngine,
-    UdpTransportTarget,
-    getCmd,
-)
-import xmltodict
 
 # Disable insecure request warnings for HTTPS requests without certificate verification.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -59,7 +45,7 @@ scan_stats = {
 
 # Add these imports near the top of the file
 try:
-    from colorama import init, Fore, Back, Style
+    from colorama import Back, Fore, Style, init
     # Initialize colorama
     init(autoreset=True)
     HAS_COLOR = True
@@ -78,20 +64,20 @@ def supports_color():
     """Returns True if the terminal supports color, False otherwise."""
     if not HAS_COLOR:
         return False
-    
+
     # Check if we're in a terminal that supports colors
     if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
         return True
-    
+
     # Check for specific environment variables
     if 'COLORTERM' in os.environ:
         return True
-    
+
     # Check for specific terminals
     term = os.environ.get('TERM', '')
     if term in ('xterm', 'xterm-color', 'xterm-256color', 'linux', 'screen', 'screen-256color'):
         return True
-    
+
     return False
 
 # Set color support flag
@@ -182,8 +168,8 @@ def calculate_network(ip: str, netmask: str) -> str:
 @dataclass
 class DiscoveredHost:
     ip: str
-    mac: Optional[str] = None
-    vendor: Optional[str] = None
+    mac: str | None = None
+    vendor: str | None = None
 
 # nmap ping discovery using nmap -sn
 def nmap_ping_discovery(network: str) -> list[DiscoveredHost]:
@@ -241,7 +227,7 @@ def get_arp_table() -> dict[str, str]:
     """
     try:
         arp_output = run_subprocess_safely(
-            ["arp", "-a"], 
+            ["arp", "-a"],
             stdout=subprocess.PIPE,
             text=True,
             check=True
@@ -312,18 +298,18 @@ def update_status(message=None):
     """Update the status line with current progress."""
     if not scan_stats["scan_start_time"]:
         return
-        
+
     with scan_stats["lock"]:
         if message:
             scan_stats["status_line"] = message
-            
+
         elapsed = datetime.now() - scan_stats["scan_start_time"]
         elapsed_str = str(timedelta(seconds=int(elapsed.total_seconds())))
-        
+
         # Calculate progress percentage
         total_hosts = scan_stats["hosts_found"] or 1  # Avoid division by zero
         progress = min(100, int((scan_stats["hosts_scanned"] / total_hosts) * 100))
-        
+
         # Create status line
         if USE_COLOR:
             status = f"{Fore.MAGENTA}[{elapsed_str}]{Style.RESET_ALL} "
@@ -341,7 +327,7 @@ def update_status(message=None):
             status += f"Web: {scan_stats['web_services']} | Vulns: {scan_stats['vulnerabilities']}"
             if scan_stats["status_line"]:
                 status += f" | {scan_stats['status_line']}"
-        
+
         # Print a complete line with carriage return instead of manipulating the terminal
         # This approach doesn't leave the terminal in a weird state
         print(f"\r{status}", end='', flush=True)
@@ -416,10 +402,10 @@ def run_subprocess_safely(cmd, **kwargs):
         'stdin': subprocess.DEVNULL,  # Prevents terminal input mode changes
         'start_new_session': True     # Prevents signal propagation issues
     }
-    
+
     # Override with any provided kwargs
     subprocess_kwargs = {**default_kwargs, **kwargs}
-    
+
     # Run the subprocess with our safe settings
     return subprocess.run(cmd, **subprocess_kwargs)
 
@@ -450,7 +436,7 @@ def port_scan(ip: str) -> dict:
             log_debug(f"TCP Scan STDOUT[:500]: {process.stdout[:500]}")
         if process.stderr and VERBOSE_OUTPUT:
             log_debug(f"Nmap stderr for {ip}: {process.stderr}")
-        
+
         if process.returncode == 0 and process.stdout:
             # Use xmltodict to parse the XML output
             tcp_result = xmltodict.parse(process.stdout)
@@ -485,10 +471,10 @@ def port_scan(ip: str) -> dict:
                 text=True,
                 timeout=600
             )
-            
+
             if process.stderr and VERBOSE_OUTPUT:
                 log_debug(f"Nmap UDP stderr for {ip}: {process.stderr}")
-            
+
             if process.returncode == 0 and process.stdout:
                 udp_result = xmltodict.parse(process.stdout)
                 host = udp_result.get("nmaprun", {}).get("host", {})
@@ -548,20 +534,20 @@ def get_ssl_info(ip: str, port: int) -> dict:
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
-        
+
         with socket.create_connection((ip, port), timeout=5) as sock:
             with context.wrap_socket(sock, server_hostname=ip) as ssock:
                 cert = ssock.getpeercert(binary_form=True)
                 x509_cert = x509.load_der_x509_certificate(cert, default_backend())
-                
+
                 # Extract useful information
                 info = {
                     "subject": {
-                        k.decode('utf-8'): v.decode('utf-8') 
+                        k.decode('utf-8'): v.decode('utf-8')
                         for k, v in x509_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
                     },
                     "issuer": {
-                        k.decode('utf-8'): v.decode('utf-8') 
+                        k.decode('utf-8'): v.decode('utf-8')
                         for k, v in x509_cert.issuer.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
                     },
                     "version": x509_cert.version.name,
@@ -569,14 +555,14 @@ def get_ssl_info(ip: str, port: int) -> dict:
                     "serial_number": hex(x509_cert.serial_number),
                     "extensions": []
                 }
-                
+
                 # Get extensions
                 for ext in x509_cert.extensions:
                     info["extensions"].append({
                         "name": ext.oid._name,
                         "value": str(ext.value)
                     })
-                
+
                 return info
     except ssl.SSLError as e:
         # Extract useful information from SSL errors
@@ -586,7 +572,7 @@ def get_ssl_info(ip: str, port: int) -> dict:
             "error_reason": e.reason,
             "error_message": e.msg
         }
-        
+
         # Try to get basic certificate info even if verification fails
         try:
             with socket.create_connection((ip, port), timeout=5) as sock:
@@ -595,11 +581,11 @@ def get_ssl_info(ip: str, port: int) -> dict:
                     x509_cert = x509.load_der_x509_certificate(cert, default_backend())
                     error_info["basic_info"] = {
                         "subject": {
-                            k.decode('utf-8'): v.decode('utf-8') 
+                            k.decode('utf-8'): v.decode('utf-8')
                             for k, v in x509_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
                         },
                         "issuer": {
-                            k.decode('utf-8'): v.decode('utf-8') 
+                            k.decode('utf-8'): v.decode('utf-8')
                             for k, v in x509_cert.issuer.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
                         },
                         "expires": x509_cert.not_valid_after.isoformat(),
@@ -607,7 +593,7 @@ def get_ssl_info(ip: str, port: int) -> dict:
                     }
         except Exception:
             pass
-            
+
         return error_info
     except Exception as e:
         return {"error": str(e)}
@@ -624,7 +610,7 @@ def os_fingerprint(ip: str) -> dict:
             text=True,
             timeout=60
         )
-        
+
         if process.returncode == 0 and process.stdout:
             # Parse XML output to get OS info
             import xml.etree.ElementTree as ET
@@ -633,7 +619,7 @@ def os_fingerprint(ip: str) -> dict:
                 for osmatch in host.findall(".//osmatch"):
                     return {ip: osmatch.get("name", "Unknown")}
         return {ip: "Unknown"}
-            
+
     except subprocess.TimeoutExpired:
         print(f"    * OS detection timed out for {ip}", file=sys.stderr)
         return {ip: "Unknown"}
@@ -658,7 +644,7 @@ def check_dependencies():
     """Check if all required and optional scanning tools are installed."""
     missing_tools = []
     missing_optional = []
-    
+
     # Check for required and optional scanning tools
     for tool, config in SCAN_TOOLS.items():
         try:
@@ -668,7 +654,7 @@ def check_dependencies():
                 missing_tools.append((tool, config))
             else:
                 missing_optional.append((tool, config))
-    
+
     return missing_tools, missing_optional
 
 
@@ -684,7 +670,7 @@ def print_installation_instructions(missing_tools, missing_optional):
                 print(f"    {command}")
         print("\nPlease install the required tools before running the scanner.")
         return False
-    
+
     if missing_optional:
         print("\nWarning: Optional web scanning tools are not installed:")
         for tool, config in missing_optional:
@@ -696,7 +682,7 @@ def print_installation_instructions(missing_tools, missing_optional):
         print("  brew install " + " ".join(tool for tool, _ in missing_optional))
         print("\nWeb scanning features will be limited.")
         print(flush=True)
-    
+
     return True
 
 
@@ -708,12 +694,12 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
     """
     try:
         print(f"Attempting to take screenshot of {url}...", file=sys.stderr)
-        
+
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.chrome.service import Service
         from webdriver_manager.chrome import ChromeDriverManager
-        
+
         # Set up Chrome options
         chrome_options = Options()
         chrome_options.add_argument("--headless")  # Run in headless mode
@@ -726,33 +712,33 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
         chrome_options.add_argument("--disable-web-security")  # Disable web security
         chrome_options.add_argument("--disable-features=IsolateOrigins,site-per-process")  # Disable site isolation
         chrome_options.add_argument("--disable-site-isolation-trials")  # Disable site isolation trials
-        
+
         print("Initializing Chrome driver...", file=sys.stderr)
-        
+
         # Initialize the driver
         service = Service(ChromeDriverManager().install())
         # Add these options to prevent terminal issues
         service_args = ['--quiet', '--log-level=3']
         service.service_args = service_args
-        
+
         driver = webdriver.Chrome(
             service=service,
             options=chrome_options
         )
-        
+
         try:
             print(f"Navigating to {url}...", file=sys.stderr)
             # Navigate to the URL
             driver.get(url)
-            
+
             print("Waiting for page to load...", file=sys.stderr)
             # Wait for page to load
             driver.implicitly_wait(10)
-            
+
             print(f"Saving screenshot to {output_file}...", file=sys.stderr)
             # Take screenshot
             driver.save_screenshot(output_file)
-            
+
             # Verify the screenshot was created
             if os.path.exists(output_file):
                 print(f"Screenshot successfully saved to {output_file}", file=sys.stderr)
@@ -760,14 +746,14 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
             else:
                 print(f"Failed to save screenshot to {output_file}", file=sys.stderr)
                 return False
-                
+
         except Exception as e:
             print(f"Error during screenshot process: {str(e)}", file=sys.stderr)
             return False
         finally:
             print("Closing Chrome driver...", file=sys.stderr)
             driver.quit()
-            
+
     except ImportError as e:
         print(f"Selenium not installed: {str(e)}", file=sys.stderr)
         print("Install with: pip install selenium webdriver-manager", file=sys.stderr)
@@ -782,9 +768,9 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
 def parse_httpx_output(output_file: str) -> dict:
     """Parse httpx JSON output into a structured format."""
     try:
-        with open(output_file, 'r') as f:
+        with open(output_file) as f:
             content = f.read()
-            
+
         # Initialize result structure
         result = {
             "host": "",
@@ -793,34 +779,34 @@ def parse_httpx_output(output_file: str) -> dict:
             "banner": "",
             "vulnerabilities": []
         }
-        
+
         # Parse each line as JSON
         for line in content.split('\n'):
             if not line.strip():
                 continue
-                
+
             data = json.loads(line)
-            
+
             # Extract information
             result["host"] = data.get("host", "")
             result["ip"] = data.get("ip", "")
             result["port"] = str(data.get("port", ""))
             result["banner"] = data.get("web-server", "")
-            
+
             # Add security findings
             if data.get("status-code", 0) >= 400:
                 result["vulnerabilities"].append({
                     "path": "/",
                     "description": f"HTTP Status Code: {data.get('status-code')}"
                 })
-            
+
             # Add technology information
             if data.get("tech"):
                 result["vulnerabilities"].append({
                     "path": "/",
                     "description": f"Technologies: {', '.join(data.get('tech', []))}"
                 })
-                
+
         return result
     except Exception as e:
         print(f"Error parsing httpx output: {str(e)}", file=sys.stderr)
@@ -829,13 +815,13 @@ def parse_httpx_output(output_file: str) -> dict:
 
 def parse_nuclei_output(output_file: str) -> dict:
     try:
-        with open(output_file, 'r') as f:
+        with open(output_file) as f:
             content = f.read().strip()
-        
+
         # If content is empty, return an empty result.
         if not content:
             return {"vulnerabilities": []}
-        
+
         # Check if output is a JSON array.
         if content.startswith('['):
             data = json.loads(content)  # data will be a list.
@@ -877,13 +863,13 @@ def run_web_scan(ip: str, port: int) -> dict:
     """Run web scanning tools on the target."""
     results = {}
     url = f"http://{ip}:{port}" if port != 443 else f"https://{ip}:{port}"
-    
+
     # Create output directory if it doesn't exist
     output_dir = f"scan_results/{ip}"
     os.makedirs(output_dir, exist_ok=True)
-    
+
     log_debug(f"Starting web scan for {url}")
-    
+
     # First verify the port is actually open and responding
     try:
         response = requests.get(url, timeout=5, verify=False)
@@ -891,10 +877,10 @@ def run_web_scan(ip: str, port: int) -> dict:
     except requests.exceptions.RequestException as e:
         log_debug(f"Port {port} is not responding: {str(e)}")
         return None
-    
+
     with scan_stats["lock"]:
         scan_stats["web_services"] += 1
-        
+
     # Run web scanning tools
     for tool, config in SCAN_TOOLS.items():
         if not config["command"]:
@@ -903,13 +889,13 @@ def run_web_scan(ip: str, port: int) -> dict:
         try:
             output_file = f"{output_dir}/{tool}_{port}.json"
             command = config["command"].format(url=url, output_file=output_file)
-            
+
             update_status(f"Running {tool} on {ip}:{port}")
             log_debug(f"Running {tool} on {url}...")
-            
+
             if VERBOSE_OUTPUT:
                 log_debug(f"Command: {command}")
-            
+
             # Run the tool using our safe subprocess wrapper
             cmd_parts = command.split()
             process = run_subprocess_safely(
@@ -920,17 +906,17 @@ def run_web_scan(ip: str, port: int) -> dict:
                 timeout=300,  # 5 minute timeout
                 shell=False  # Safer to use split command than shell=True
             )
-            
+
             # Print tool output for debugging
             if process.stdout and VERBOSE_OUTPUT:
                 log_debug(f"{tool} stdout: {process.stdout}")
             if process.stderr and VERBOSE_OUTPUT:
                 log_debug(f"{tool} stderr: {process.stderr}")
-            
+
             # Check if output file was created
             if os.path.exists(output_file):
                 try:
-                    with open(output_file, 'r') as f:
+                    with open(output_file) as f:
                         content = f.read().strip()
                         # TODO: Maybe the parse_web_scan_tool_output(output, tool) or something?
                         if content:  # Only process if file has content
@@ -966,14 +952,14 @@ def run_web_scan(ip: str, port: int) -> dict:
                     log_error(f"Error reading {tool} output file: {str(e)}")
             else:
                 log_debug(f"{tool} did not create output file at {output_file}")
-            
+
         except subprocess.TimeoutExpired:
             log_warning(f"{tool} timed out on {url}")
             continue
         except Exception as e:
             log_error(f"Error running {tool} on {url}: {str(e)}")
             continue
-    
+
     # Take screenshot using Selenium
     # TODO: Do we only do the front page /, what if gobuster find sub directories?  Maybe just try to get one good shot?
     screenshot_file = f"{output_dir}/screenshot_{port}.png"
@@ -982,12 +968,12 @@ def run_web_scan(ip: str, port: int) -> dict:
             "status": "success",
             "output_file": screenshot_file
         }
-    
+
     if results:
         log_debug(f"Web scan completed for {url} with {len(results)} results")
     else:
         log_debug(f"No web scan results found for {url}")
-    
+
     return results if results else None
 
 
@@ -995,13 +981,13 @@ def web_scan(ip: str, ports: list[int]) -> dict:
     """Wrapper function for run_web_scan to handle multiple ports."""
     results = {}
     web_ports = [port for port in ports if port in [80, 443, 8080, 8443]]  # Only scan common web ports
-    
+
     if not web_ports:
         print(f"No web ports found to scan for {ip}. Available ports: {ports}", file=sys.stderr)
         return {"message": "No web ports found to scan"}
-        
+
     print(f"Scanning web ports {web_ports} on {ip}...", file=sys.stderr)
-    
+
     for port in web_ports:
         try:
             print(f"Attempting web scan on port {port} for {ip}...", file=sys.stderr)
@@ -1013,11 +999,11 @@ def web_scan(ip: str, ports: list[int]) -> dict:
                 print(f"No results from web scan on port {port} for {ip}", file=sys.stderr)
         except Exception as e:
             print(f"Error scanning web port {port} on {ip}: {str(e)}", file=sys.stderr)
-    
+
     if not results:
         print(f"No web scan results found for {ip} on any ports", file=sys.stderr)
         return {"message": "No web scan results found"}
-    
+
     print(f"Completed web scanning for {ip} with {len(results)} results", file=sys.stderr)
     return results
 
@@ -1033,7 +1019,7 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             return {"error": "Templates not found"}
 
         results = {}
-        
+
         # Determine protocol based on port
         if port in [80, 443, 8080, 8443]:
             # Web scanning
@@ -1056,11 +1042,11 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_web.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_web.json") as f:
                         results["web"] = json.load(f)
                 except json.JSONDecodeError:
                     results["web"] = {"error": "Failed to parse Nuclei web output"}
-        
+
         # SSH scanning
         if port == 22:
             cmd = [
@@ -1081,11 +1067,11 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_ssh.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_ssh.json") as f:
                         results["ssh"] = json.load(f)
                 except json.JSONDecodeError:
                     results["ssh"] = {"error": "Failed to parse Nuclei SSH output"}
-        
+
         # DNS scanning
         if port == 53:
             cmd = [
@@ -1106,11 +1092,11 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_dns.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_dns.json") as f:
                         results["dns"] = json.load(f)
                 except json.JSONDecodeError:
                     results["dns"] = {"error": "Failed to parse Nuclei DNS output"}
-        
+
         # SNMP scanning
         if port == 161:
             cmd = [
@@ -1132,11 +1118,11 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_snmp.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_snmp.json") as f:
                         results["snmp"] = json.load(f)
                 except json.JSONDecodeError:
                     results["snmp"] = {"error": "Failed to parse Nuclei SNMP output"}
-        
+
         # FTP scanning
         if port == 21:
             cmd = [
@@ -1158,11 +1144,11 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_ftp.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_ftp.json") as f:
                         results["ftp"] = json.load(f)
                 except json.JSONDecodeError:
                     results["ftp"] = {"error": "Failed to parse Nuclei FTP output"}
-        
+
         # SMB scanning
         if port == 445:
             cmd = [
@@ -1184,13 +1170,13 @@ def run_nuclei_scan(target: str, port: int) -> dict:
             result = run_subprocess_safely(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 try:
-                    with open(f"scan_results/{target}_{port}_nuclei_smb.json", "r") as f:
+                    with open(f"scan_results/{target}_{port}_nuclei_smb.json") as f:
                         results["smb"] = json.load(f)
                 except json.JSONDecodeError:
                     results["smb"] = {"error": "Failed to parse Nuclei SMB output"}
-        
+
         return results if results else {"error": "No Nuclei results found"}
-        
+
     except subprocess.TimeoutExpired:
         return {"error": "Nuclei scan timed out"}
     except Exception as e:
@@ -1225,7 +1211,7 @@ def scan_host(
     tcp_ports = open_ports.get("tcp", [])
     log_info(f"Open ports: tcp: {tcp_ports}")
     if tcp_ports:
-        log_info(f"Doing banners..")
+        log_info("Doing banners..")
         update_status(f"Banner grabbing for {ip}")
         log_debug(f"  - Grabbing banners for {len(tcp_ports)} open TCP ports...")
         with ThreadPoolExecutor(max_workers=len(tcp_ports)) as banner_executor:
@@ -1239,7 +1225,7 @@ def scan_host(
                 except Exception:
                     banners[port] = "No banner"
     else:
-        log_info(f"No banners to check")
+        log_info("No banners to check")
     result["banners"] = banners
     log_info(f"Banners: {banners}")
 
@@ -1303,7 +1289,7 @@ def scan_host(
 
     with scan_stats["lock"]:
         scan_stats["hosts_scanned"] += 1
-        
+
     log_success(f"Completed scanning {ip}")
     return result
 
@@ -1381,13 +1367,13 @@ def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, sn
     """Save scan results to JSON files."""
     # Create scan_results directory
     os.makedirs("scan_results", exist_ok=True)
-    
+
     # Save individual host results
     for host in live_hosts:
         ip = host.ip
         host_dir = f"scan_results/{ip}"
         os.makedirs(host_dir, exist_ok=True)
-        
+
         # Combine all results for this host
         host_results = {
             "ip": ip,
@@ -1398,11 +1384,11 @@ def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, sn
             "snmp_info": snmp_results.get(ip, "SNMP port not open"),
             "ssl_certificates": ssl_results.get(ip, "No SSL certificate info")
         }
-        
+
         # Save to JSON file
         with open(f"{host_dir}/scan_results.json", "w") as f:
             json.dump(host_results, f, indent=2)
-    
+
     live_hosts_serializable = [asdict(host) for host in live_hosts]
 
     # Save summary results
@@ -1417,7 +1403,7 @@ def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, sn
         "snmp_results": snmp_results,
         "ssl_results": ssl_results
     }
-    
+
     with open("scan_results/summary.json", "w") as f:
         json.dump(summary, f, indent=4)
 
@@ -1433,7 +1419,7 @@ def discover_live_hosts(network: str) -> list[DiscoveredHost]:
         if not live_hosts:
             log_warning("No live hosts found")
             return []
-            
+
         log_info(f"Discovered {len(live_hosts)} live hosts")
         return live_hosts
     except Exception as e:
@@ -1451,7 +1437,7 @@ def scan_live_hosts(live_hosts: list[str]) -> list[dict]:
     mac_addresses = resolve_mac_addresses(live_hosts)
     update_status("Looking up vendor information")
     vendors = lookup_mac_vendors(mac_addresses)
-    
+
     results = []
     with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
         future_to_ip = {
@@ -1486,12 +1472,12 @@ def get_target_network(interfaces: list[dict[str, str]]) -> str:
     """
     if not interfaces:
         return None
-        
+
     # Use the first interface's IP and netmask
     interface = interfaces[0]
     ip = interface["ip_address"]
     netmask = interface["netmask"]
-    
+
     # Calculate network in CIDR notation
     try:
         network = calculate_network(ip, netmask)
@@ -1519,7 +1505,7 @@ def print_completion_banner(duration_str):
         print(f"{Fore.GREEN}" + "=" * 80 + f"{Style.RESET_ALL}")
         print(f"{Fore.GREEN}" + "=" * 30 + " SCAN COMPLETE " + "=" * 30 + f"{Style.RESET_ALL}")
         print(f"{Fore.GREEN}" + "=" * 80 + f"{Style.RESET_ALL}")
-        
+
         # Print detailed summary
         print(f"\n{Fore.CYAN}📊 SCAN SUMMARY{Style.RESET_ALL}")
         print(f"{Fore.WHITE}⏱️  Duration:{Style.RESET_ALL} {duration_str}")
@@ -1528,7 +1514,7 @@ def print_completion_banner(duration_str):
         print(f"{Fore.WHITE}📡 Open UDP ports found:{Style.RESET_ALL} {scan_stats['open_udp_ports']}")
         print(f"{Fore.WHITE}🌐 Web services detected:{Style.RESET_ALL} {scan_stats['web_services']}")
         print(f"{Fore.WHITE}⚠️  Vulnerabilities found:{Style.RESET_ALL} {scan_stats['vulnerabilities']}")
-        
+
         # Get timestamp for scan completion
         end_time = datetime.now()
         print(f"{Fore.WHITE}🕒 Scan completed at:{Style.RESET_ALL} {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1538,20 +1524,20 @@ def print_completion_banner(duration_str):
         if scan_stats['vulnerabilities'] > 0:
             print(f"\n{Fore.RED}⚠️  ATTENTION: Vulnerabilities were detected during the scan!{Style.RESET_ALL}")
             print(f"   {Fore.YELLOW}Please review the detailed scan results for more information.{Style.RESET_ALL}")
-        
+
         # Print next steps or recommendations
         print(f"\n{Fore.CYAN}📋 NEXT STEPS:{Style.RESET_ALL}")
         print(f"  {Fore.WHITE}1. Review detailed scan results in the scan_results directory{Style.RESET_ALL}")
         print(f"  {Fore.WHITE}2. Investigate any discovered vulnerabilities{Style.RESET_ALL}")
         print(f"  {Fore.WHITE}3. Consider securing open ports that aren't needed{Style.RESET_ALL}")
         print(f"  {Fore.WHITE}4. Run regular scans to monitor your network security{Style.RESET_ALL}")
-        
+
         print(f"\n{Fore.GREEN}Thank you for using Nanitor Network Scanner!{Style.RESET_ALL}\n")
     else:
         print("=" * 80)
         print("=" * 30 + " SCAN COMPLETE " + "=" * 30)
         print("=" * 80)
-        
+
         # Print detailed summary
         print("\n📊 SCAN SUMMARY")
         print(f"⏱️  Duration: {duration_str}")
@@ -1560,7 +1546,7 @@ def print_completion_banner(duration_str):
         print(f"📡 Open UDP ports found: {scan_stats['open_udp_ports']}")
         print(f"🌐 Web services detected: {scan_stats['web_services']}")
         print(f"⚠️  Vulnerabilities found: {scan_stats['vulnerabilities']}")
-        
+
         # Get timestamp for scan completion
         end_time = datetime.now()
         print(f"🕒 Scan completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1570,14 +1556,14 @@ def print_completion_banner(duration_str):
         if scan_stats['vulnerabilities'] > 0:
             print("\n⚠️  ATTENTION: Vulnerabilities were detected during the scan!")
             print("   Please review the detailed scan results for more information.")
-        
+
         # Print next steps or recommendations
         print("\n📋 NEXT STEPS:")
         print("  1. Review detailed scan results in the scan_results directory")
         print("  2. Investigate any discovered vulnerabilities")
         print("  3. Consider securing open ports that aren't needed")
         print("  4. Run regular scans to monitor your network security")
-        
+
         print("\nThank you for using Nanitor Network Scanner!\n")
 
 
@@ -1585,7 +1571,7 @@ def main():
     """Main function."""
     # Version information
     VERSION = "1.0.0"
-    
+
     # ASCII art banner
     banner = """
     ███╗   ██╗ █████╗ ███╗   ██╗██╗████████╗ ██████╗ ██████╗ 
@@ -1595,13 +1581,13 @@ def main():
     ██║ ╚████║██║  ██║██║ ╚████║██║   ██║   ╚██████╔╝██║  ██║
     ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
     """
-    
+
     # Print banner first
     print(banner)
     print(f"Version: {VERSION}")
     print("A comprehensive network scanner for security assessments and discovery")
     print("=" * 80)
-    
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(
         description="A comprehensive network scanner for security assessments and discovery",
@@ -1621,21 +1607,21 @@ Examples:
     sudo -E python nanscan.py -n 192.168.1.0/24 -t 20 --target-tcp-ports 22,80,443 --target-udp-ports 53,161 --ssl-ports 443,8443
         """
     )
-    
+
     # Basic options
-    parser.add_argument("-n", "--network", 
+    parser.add_argument("-n", "--network",
                        help="Target network to scan (CIDR notation, e.g. 192.168.1.0/24)")
-    parser.add_argument("-v", "--verbose", 
-                       action="store_true", 
+    parser.add_argument("-v", "--verbose",
+                       action="store_true",
                        help="Enable verbose output")
-    parser.add_argument("-t", "--threads", 
-                       type=int, 
+    parser.add_argument("-t", "--threads",
+                       type=int,
                        default=DEFAULT_THREAD_COUNT,
                        help=f"Number of threads (default: {DEFAULT_THREAD_COUNT})")
     parser.add_argument("-f", "--force",
                        action="store_true",
                        help="Force execution even if optional tools are missing")
-    
+
     # Port scanning options
     parser.add_argument("--target-tcp-ports",
                        type=parse_port_list,
@@ -1653,20 +1639,20 @@ Examples:
                        type=int,
                        default=DEFAULT_SNMP_PORT,
                        help=f"SNMP port to scan (default: {DEFAULT_SNMP_PORT})")
-    
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Set global variables based on command line arguments
     global VERBOSE_OUTPUT, THREAD_COUNT, COMMON_TCP_PORTS, COMMON_UDP_PORTS, SSL_PORTS, SNMP_PORT
-    
+
     VERBOSE_OUTPUT = args.verbose
     THREAD_COUNT = args.threads
     COMMON_TCP_PORTS = args.target_tcp_ports
     COMMON_UDP_PORTS = args.target_udp_ports
     SSL_PORTS = args.ssl_ports
     SNMP_PORT = args.snmp_port
-    
+
     if not is_root():
         print("Error: This script must be run as root for network scanning.")
         return 1
@@ -1677,7 +1663,7 @@ Examples:
 
     # Initialize scan stats
     scan_stats["scan_start_time"] = datetime.now()
-    
+
     # Start background status updater thread
     status_thread = threading.Thread(target=status_updater, daemon=True)
     status_thread.start()
@@ -1702,7 +1688,7 @@ Examples:
     print(f"• OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
     print(f"• Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
     print("-" * 80)
-    
+
     print("\nScanning tools used:")
     print("-" * 80)
     for tool, info in SCAN_TOOLS.items():
@@ -1735,13 +1721,13 @@ Examples:
 
     if not live_hosts:
         log_warning("No live hosts found.")
-        
+
         # Still show completion banner and summary
         print("\n\n")
         print("=" * 80)
         print("=" * 30 + " SCAN COMPLETE " + "=" * 30)
         print("=" * 80)
-        
+
         print("\n📊 SCAN SUMMARY")
         print(f"⏱️  Duration: {str(timedelta(seconds=int((datetime.now() - scan_stats['scan_start_time']).total_seconds())))}")
         print("🔍 Hosts scanned: 0 (No live hosts found)")
@@ -1749,18 +1735,18 @@ Examples:
         print("📡 Open UDP ports found: 0")
         print("🌐 Web services detected: 0")
         print("⚠️  Vulnerabilities found: 0")
-        
+
         # Get timestamp for scan completion
         end_time = datetime.now()
         print(f"🕒 Scan completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
+
         print("\n📋 NEXT STEPS:")
         print("  1. Verify network connectivity or try a different network range")
         print("  2. Check if hosts are blocking ICMP ping requests")
         print("  3. Try running with the -v flag for verbose output")
-        
+
         print("\nThank you for using Nanitor Network Scanner!\n")
-        
+
         return 0
 
     live_ips = [host.ip for host in live_hosts]
@@ -1843,17 +1829,17 @@ Examples:
     log_phase("SAVING RESULTS")
     scan_stats["status_line"] = "Saving scan results"
     save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info)
-    
+
     # Calculate and display scan summary
     scan_duration = datetime.now() - scan_stats["scan_start_time"]
     duration_str = str(timedelta(seconds=int(scan_duration.total_seconds())))
-    
+
     # Print completion banner
     print_completion_banner(duration_str)
-    
+
     # Add a newline at the end to ensure terminal prompt is clean
     print("")
-    
+
     return 0
 
 
@@ -1888,7 +1874,7 @@ def snmp_scan(ip, port_results=None):
         print(f"{Fore.CYAN}[INFO] SNMP scanning {ip}{Style.RESET_ALL}")
     else:
         print(f"[INFO] SNMP scanning {ip}")
-        
+
     # Check if the host has UDP port 161 open
     try:
         if port_results is None or ip not in port_results or 'udp' not in port_results[ip] or 161 not in port_results[ip]['udp']:
@@ -1899,22 +1885,22 @@ def snmp_scan(ip, port_results=None):
     except Exception as e:
         print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
         return None
-    
+
     snmp_results = {}
     try:
         community_strings = ["public", "private", "cisco", "community", "manager", "admin", "default"]
-        
+
         for community in community_strings:
             try:
                 system_info = get_snmp_system_info(ip, community)
                 if system_info:
                     snmp_results['system_info'] = system_info
                     snmp_results['community_string'] = community
-                    
+
                     interfaces = get_snmp_interfaces(ip, community)
                     if interfaces:
                         snmp_results['interfaces'] = interfaces
-                    
+
                     break  # Stop trying other community strings if we succeed
             except Exception as e:
                 if VERBOSE_OUTPUT:
@@ -1923,7 +1909,7 @@ def snmp_scan(ip, port_results=None):
     except Exception as e:
         print(f"[ERROR] SNMP scan failed for {ip}: {str(e)}")
         return None
-    
+
     return snmp_results
 
 
