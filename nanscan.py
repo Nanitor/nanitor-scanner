@@ -119,30 +119,19 @@ SCAN_TOOLS = {
         }
     },
     "httpx": {
-        "command": "httpx -u {url} -json -silent -o {output_file} -title -status-code -tech-detect -web-server -content-length -content-type -server -cname -ip -asn -cdn",
-        "required": False,
         "description": "Modern HTTP toolkit for web scanning",
-        "features": [
-            "Title detection",
-            "Status code checking",
-            "Technology detection",
-            "Web server identification",
-            "Content type analysis",
-            "SSL/TLS information",
-            "CDN detection",
-            "ASN information"
-        ]
+        "required": False,
+        "command": "httpx -u {url} -json -silent -o {output_file} -title -status-code -tech-detect -web-server -content-length -content-type -server -cname -ip -asn -cdn",
     },
     "gobuster": {
-        "command": "gobuster dir -k -u {url} -w wordlists/quicklist.txt -x php,html,txt,asp,aspx,jsp,xml -r --random-agent -q -o {output_file}",
-        "required": False,
         "description": "Directory bruteforcing",
-        "wordlist": "wordlists/quicklist.txt"
+        "required": False,
+        "command": "gobuster dir -k -u {url} -w wordlists/quicklist.txt -x php,html,txt,asp,aspx,jsp,xml -r --random-agent -q -o {output_file}",
     },
     "nuclei": {
-        "command": "nuclei -ni -u {url} -json-export {output_file} -severity high,critical -etags exploitation,active -silent -rate-limit 50 -concurrency 5",
+        "description": "Passive vulnerability and misconfiguration scanner",
         "required": False,
-        "description": "Passive vulnerability and misconfiguration scanner"
+        "command": "nuclei -ni -u {url} -json-export {output_file} -severity high,critical -etags exploitation,active -silent -rate-limit 50 -concurrency 5",
     }
 }
 
@@ -872,6 +861,9 @@ def run_web_scan(ip: str, port: int) -> dict:
         
     # Run web scanning tools
     for tool, config in SCAN_TOOLS.items():
+        if not config["command"]:
+            # TODO: Maybe not the best or most explicit way to say this tool should be run...
+            continue
         try:
             output_file = f"{output_dir}/{tool}_{port}.json"
             command = config["command"].format(url=url, output_file=output_file)
@@ -1195,7 +1187,9 @@ def scan_host(
     # Concurrently grab banners for all open TCP ports
     banners = {}
     tcp_ports = open_ports.get("tcp", [])
+    log_info(f"Open ports: tcp: {tcp_ports}")
     if tcp_ports:
+        log_info(f"Doing banners..")
         update_status(f"Banner grabbing for {ip}")
         log_debug(f"  - Grabbing banners for {len(tcp_ports)} open TCP ports...")
         with ThreadPoolExecutor(max_workers=len(tcp_ports)) as banner_executor:
@@ -1208,7 +1202,10 @@ def scan_host(
                     banners[port] = future.result()
                 except Exception:
                     banners[port] = "No banner"
+    else:
+        log_info(f"No banners to check")
     result["banners"] = banners
+    log_info(f"Banners: {banners}")
 
     # Concurrently fetch HTTP headers for common web ports (if open)
     http_headers = {}
@@ -1542,19 +1539,89 @@ def print_completion_banner(duration_str):
 
 def main():
     """Main function."""
+    # Version information
+    VERSION = "1.0.0"
+    
+    # ASCII art banner
+    banner = """
+    ███╗   ██╗ █████╗ ███╗   ██╗██╗████████╗ ██████╗ ██████╗ 
+    ████╗  ██║██╔══██╗████╗  ██║██║╚══██╔══╝██╔═══██╗██╔══██╗
+    ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║   ██║   ██║██████╔╝
+    ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║   ██║   ██║██╔══██╗
+    ██║ ╚████║██║  ██║██║ ╚████║██║   ██║   ╚██████╔╝██║  ██║
+    ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
+    """
+    
+    # Print banner first
+    print(banner)
+    print(f"Version: {VERSION}")
+    print("A comprehensive network scanner for security assessments and discovery")
+    print("=" * 80)
+    
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Nanitor Network Scanner")
-    parser.add_argument("-n", "--network", help="Target network to scan (CIDR notation, e.g. 192.168.1.0/24)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
-    parser.add_argument("-t", "--threads", type=int, default=DEFAULT_THREAD_COUNT, help=f"Number of threads (default: {DEFAULT_THREAD_COUNT})")
+    parser = argparse.ArgumentParser(
+        description="A comprehensive network scanner for security assessments and discovery",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Scan local network:
+    sudo -E python nanscan.py
+
+  Scan specific network with verbose output:
+    sudo -E python nanscan.py -n 192.168.1.0/24 -v
+
+  Scan specific TCP ports:
+    sudo -E python nanscan.py -n 10.0.0.0/24 --target-tcp-ports 22,80,443,8080
+
+  Customize all scan parameters:
+    sudo -E python nanscan.py -n 192.168.1.0/24 -t 20 --target-tcp-ports 22,80,443 --target-udp-ports 53,161 --ssl-ports 443,8443
+        """
+    )
+    
+    # Basic options
+    parser.add_argument("-n", "--network", 
+                       help="Target network to scan (CIDR notation, e.g. 192.168.1.0/24)")
+    parser.add_argument("-v", "--verbose", 
+                       action="store_true", 
+                       help="Enable verbose output")
+    parser.add_argument("-t", "--threads", 
+                       type=int, 
+                       default=DEFAULT_THREAD_COUNT,
+                       help=f"Number of threads (default: {DEFAULT_THREAD_COUNT})")
+    parser.add_argument("-f", "--force",
+                       action="store_true",
+                       help="Force execution even if optional tools are missing")
+    
+    # Port scanning options
+    parser.add_argument("--target-tcp-ports",
+                       type=parse_port_list,
+                       default=DEFAULT_TCP_PORTS,
+                       help=f"TCP ports to scan (comma-separated, default: {','.join(map(str, DEFAULT_TCP_PORTS))})")
+    parser.add_argument("--target-udp-ports",
+                       type=parse_port_list,
+                       default=DEFAULT_UDP_PORTS,
+                       help=f"UDP ports to scan (comma-separated, default: {','.join(map(str, DEFAULT_UDP_PORTS))})")
+    parser.add_argument("--ssl-ports",
+                       type=parse_port_list,
+                       default=DEFAULT_SSL_PORTS,
+                       help=f"SSL/TLS ports to check (comma-separated, default: {','.join(map(str, DEFAULT_SSL_PORTS))})")
+    parser.add_argument("--snmp-port",
+                       type=int,
+                       default=DEFAULT_SNMP_PORT,
+                       help=f"SNMP port to scan (default: {DEFAULT_SNMP_PORT})")
+    
+    # Parse arguments
     args = parser.parse_args()
     
     # Set global variables based on command line arguments
-    global VERBOSE_OUTPUT
-    global THREAD_COUNT
+    global VERBOSE_OUTPUT, THREAD_COUNT, COMMON_TCP_PORTS, COMMON_UDP_PORTS, SSL_PORTS, SNMP_PORT
     
     VERBOSE_OUTPUT = args.verbose
     THREAD_COUNT = args.threads
+    COMMON_TCP_PORTS = args.target_tcp_ports
+    COMMON_UDP_PORTS = args.target_udp_ports
+    SSL_PORTS = args.ssl_ports
+    SNMP_PORT = args.snmp_port
     
     if not is_root():
         print("Error: This script must be run as root for network scanning.")
@@ -1578,34 +1645,36 @@ def main():
         return 1
 
     # Print startup message
-    print("\nNanitor Network Scanner")
-    print("======================")
-    print("Configuration:")
-    print(f"- Thread count: {THREAD_COUNT}")
-    print(f"- Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
-    print(f"- TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
-    print(f"- UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
-    print(f"- SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
-    print(f"- SNMP port: {SNMP_PORT}")
-    print(f"- Running as root: {is_root()}")
-    print(f"- OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
-    print(f"- Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
+    print("=" * 80)
+    print("Scan configuration:")
+    print("-" * 80)
+    print(f"• Thread count: {THREAD_COUNT}")
+    print(f"• Allowed interfaces: {', '.join(ALLOWED_INTERFACES)}")
+    print(f"• TCP ports to scan: {', '.join(map(str, COMMON_TCP_PORTS))}")
+    print(f"• UDP ports to scan: {', '.join(map(str, COMMON_UDP_PORTS))}")
+    print(f"• SSL/TLS ports: {', '.join(map(str, SSL_PORTS))}")
+    print(f"• SNMP port: {SNMP_PORT}")
+    print(f"• Running as root: {is_root()}")
+    print(f"• OS detection: {'Enabled' if is_root() else 'Disabled (requires root)'}")
+    print(f"• Verbose output: {'Enabled' if VERBOSE_OUTPUT else 'Disabled'}")
+    print("-" * 80)
     
-    print("\nWeb Scanning Tools:")
+    print("\nScanning tools used:")
+    print("-" * 80)
     for tool, info in SCAN_TOOLS.items():
         print(f"\n{tool}:")
         print(f"  Description: {info['description']}")
-        print(f"  Command: {info['command']}")
-        if 'features' in info:
-            print("  Features:")
-            for feature in info['features']:
-                print(f"    - {feature}")
-        if 'wordlist' in info:
-            print(f"  Wordlist: {info['wordlist']}")
+        if 'command' in info:
+            print(f"  Command: {info['command']}")
+    print("-" * 80)
 
     print("\nFound network interfaces:")
+    print("-" * 80)
     for interface in interfaces:
-        print(f"- Interface: {interface['interface']}, IP: {interface['ip_address']}, Netmask: {interface['netmask']}")
+        print(f"• Interface: {interface['interface']}")
+        print(f"  IP: {interface['ip_address']}")
+        print(f"  Netmask: {interface['netmask']}")
+    print("-" * 80)
 
     # Get target network - either from command line or from interfaces
     target_network = args.network if args.network else get_target_network(interfaces)
