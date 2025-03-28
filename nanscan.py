@@ -666,7 +666,7 @@ def print_installation_instructions(missing_tools, missing_optional):
         for tool, config in missing_tools:
             print(f"- {tool}: {config['description']}")
             print("  Install with:")
-            for os_name, command in config['install'].items():
+            for _os_name, command in config['install'].items():
                 print(f"    {command}")
         print("\nPlease install the required tools before running the scanner.")
         return False
@@ -1008,7 +1008,8 @@ def web_scan(ip: str, ports: list[int]) -> dict:
     return results
 
 
-# TODO: I don't like how we are running nuclei... Nuclei doesn't specify ports, we can specify templates, or template tags.  Possibly we should have just a map of ports to templates or template tags?
+# TODO: I don't like how we are running nuclei... Nuclei doesn't specify ports, we can specify templates, or template tags.
+# TODO: Possibly we should have just a map of ports to templates or template tags?
 def run_nuclei_scan(target: str, port: int) -> dict:
     """Run Nuclei scan on target with support for multiple protocols."""
     try:
@@ -1305,7 +1306,7 @@ def parse_port_list(port_string: str) -> list[int]:
     try:
         return [int(port.strip()) for port in port_string.split(',')]
     except ValueError as e:
-        raise argparse.ArgumentTypeError(f"Invalid port number: {e}")
+        raise argparse.ArgumentTypeError(f"Invalid port number: {e}") from e
 
 
 # TODO: This seems a bit redundant, we had this already somewhere...
@@ -1574,7 +1575,7 @@ def main():
 
     # ASCII art banner
     banner = """
-    ███╗   ██╗ █████╗ ███╗   ██╗██╗████████╗ ██████╗ ██████╗ 
+    ███╗   ██╗ █████╗ ███╗   ██╗██╗████████╗ ██████╗ ██████╗
     ████╗  ██║██╔══██╗████╗  ██║██║╚══██╔══╝██╔═══██╗██╔══██╗
     ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║   ██║   ██║██████╔╝
     ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║   ██║   ██║██╔══██╗
@@ -1750,7 +1751,7 @@ Examples:
         return 0
 
     live_ips = [host.ip for host in live_hosts]
-    scan_results = scan_live_hosts(live_ips)
+    #scan_results = scan_live_hosts(live_ips)
     scan_stats["hosts_found"] = len(live_ips)
     log_success(f"Found {len(live_ips)} live host(s) on {target_network}.")
 
@@ -1862,11 +1863,11 @@ def resolve_vendors(live_hosts: list[str]) -> dict:
 def snmp_scan(ip, port_results=None):
     """
     Perform SNMP scanning on a single host.
-    
+
     Args:
         ip (str): The IP address to scan.
         port_results (dict, optional): Dictionary containing port scanning results.
-        
+
     Returns:
         dict: The SNMP scan results or None if scan failed.
     """
@@ -1877,7 +1878,12 @@ def snmp_scan(ip, port_results=None):
 
     # Check if the host has UDP port 161 open
     try:
-        if port_results is None or ip not in port_results or 'udp' not in port_results[ip] or 161 not in port_results[ip]['udp']:
+        if (
+            port_results is None or
+            ip not in port_results or
+            'udp' not in port_results[ip] or
+            161 not in port_results[ip]['udp']
+        ):
             if VERBOSE_OUTPUT:
                 print(f"[DEBUG] Skipping SNMP scan for {ip} - port 161/udp not open")
             print(f"[ERROR] SNMP scan failed for {ip}: UDP port 161 not open")
