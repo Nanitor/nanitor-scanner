@@ -2,6 +2,7 @@
 # Standard library imports
 import argparse
 import json
+import mdns
 import os
 import signal
 import socket
@@ -126,7 +127,7 @@ SCAN_TOOLS = {
 
 # Default values for all configurable parameters
 DEFAULT_THREAD_COUNT = 10
-DEFAULT_TCP_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 1433, 1883, 3306, 3389, 5432, 5555, 5900, 6379, 8080, 8443]
+DEFAULT_TCP_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 1433, 1883, 3306, 3389, 5432, 5555, 5900, 6379, 7000, 8080, 8443]
 DEFAULT_UDP_PORTS = [53, 67, 69, 123, 137, 161, 162, 500, 514, 520, 1900, 5353, 33434]
 DEFAULT_SNMP_PORT = 161
 DEFAULT_SSL_PORTS = [443, 8443]
@@ -1365,7 +1366,7 @@ def check_web_tools() -> dict:
     return available_tools
 
 
-def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, snmp_results, ssl_results, os_info, vendor_info):
+def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, snmp_results, ssl_results, os_info, vendor_info, mdns_services=None):
     """Save scan results to JSON files."""
     # Create scan_results directory
     os.makedirs("scan_results", exist_ok=True)
@@ -1405,6 +1406,8 @@ def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, sn
         "snmp_results": snmp_results,
         "ssl_results": ssl_results
     }
+    if mdns_services:
+        summary['mdns_results'] = mdns_services
 
     with open("scan_results/summary.json", "w") as f:
         json.dump(summary, f, indent=4)
@@ -1417,7 +1420,7 @@ def discover_live_hosts(network: str) -> list[DiscoveredHost]:
         # Use ping discovery to find live hosts
         update_status(f"Discovering hosts on {network}")
         live_hosts = nmap_ping_discovery(network)
-        print(f"live_hosts: {live_hosts}")
+        print(f"\nlive_hosts: {live_hosts}")
         if not live_hosts:
             log_warning("No live hosts found")
             return []
@@ -1666,6 +1669,10 @@ Examples:
     # Initialize scan stats
     scan_stats["scan_start_time"] = datetime.now()
 
+    # Start mDNS discovery in background with at least 10 seconds of minimum run time.
+    # By default, this will listen on the meta-service to capture all service types.
+    mdns_stop_event, mdns_services = mdns.run_mdns_in_background(min_duration=10)
+
     # Start background status updater thread
     status_thread = threading.Thread(target=status_updater, daemon=True)
     status_thread.start()
@@ -1827,10 +1834,16 @@ Examples:
             except Exception as e:
                 log_error(f"SSL scan failed for {ip}: {str(e)}")
 
+    
+    # When all scanning is complete, signal the mDNS thread to stop.
+    mdns_stop_event.set()
+    # Wait a moment for cleanup.
+    time.sleep(1)
+
     # Save results
     log_phase("SAVING RESULTS")
     scan_stats["status_line"] = "Saving scan results"
-    save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info)
+    save_results(live_hosts, port_results, web_results, snmp_results, ssl_results, os_info, vendor_info, mdns_services)
 
     # Calculate and display scan summary
     scan_duration = datetime.now() - scan_stats["scan_start_time"]
