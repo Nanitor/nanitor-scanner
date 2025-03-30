@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+
+#TODO:
+# 1. Clean up scan flow.
+# 2. Clarify what stuff is optional, and make it verbose, allow running as non-root but then make clear what one is not getting...
+#    Still error out if non-root, unless --minimal or --not-root is enabled, or maybe skip some checks like --skip udp,etc.
+# 3. Clean up code still, like REQUIRED_TOOLS vs SCAN_TOOLS etc.
+# 4. Modularize more scanners.
+# 5. Add packet sniffing capture (esp. DHCP requests)
+# 6. Make sure reverse dns lookup is working properly and capturing infos from nmap.
+# 7. Ability to convert to Nanitor's import JSON format.
+# 8. Ability to upload directly to Nanitor's API (NANITOR_INSTANCE_URL, NANITOR_API_KEY or NANITOR_API_URL/KEY?)
+
+
 # Standard library imports
 import argparse
 import json
@@ -172,6 +185,7 @@ class DiscoveredHost:
     ip: str
     mac: str | None = None
     vendor: str | None = None
+    hostnames: str | None = None
 
 # nmap ping discovery using nmap -sn
 def nmap_ping_discovery(network: str) -> list[DiscoveredHost]:
@@ -207,6 +221,7 @@ def nmap_ping_discovery(network: str) -> list[DiscoveredHost]:
                 mac = None
                 vendor = None
                 addresses = host.get("address", [])
+                hostname_list = []
                 if isinstance(addresses, dict):
                     addresses = [addresses]
                 for addr in addresses:
@@ -215,8 +230,21 @@ def nmap_ping_discovery(network: str) -> list[DiscoveredHost]:
                     elif addr.get("@addrtype") == "mac":
                         mac = addr.get("@addr")
                         vendor = addr.get("@vendor")
+                # ---- Parse <hostnames> for a PTR or other hostname ----
+                hostnames_block = host.get("hostnames", {})
+                if isinstance(hostnames_block, dict):
+                    # 'hostname' might be a dict or a list of dicts
+                    h = hostnames_block.get("hostname", [])
+                    if isinstance(h, dict):
+                        h = [h]  # unify into a list
+                    for hn in h:
+                        # Example: hn = {"@name": "huawei", "@type": "PTR"}
+                        name = hn.get("@name")
+                        if name:
+                            hostname_list.append(name)
+                hostnames = hostname_list if hostname_list else None
                 if ip:
-                    hosts.append(DiscoveredHost(ip=ip, mac=mac, vendor=vendor))
+                    hosts.append(DiscoveredHost(ip=ip, mac=mac, vendor=vendor, hostnames=hostnames))
         return hosts
     except Exception as e:
         log_error(f"Nmap ping discovery exception: {str(e)}")
