@@ -200,3 +200,34 @@ def decode_bytes(obj):
     else:
         return obj
 
+
+def add_mdns_results_to_host(mdns_results, single_host):
+    """
+    Integrate mDNS discovery results into a single host dictionary.
+
+    Args:
+        mdns_results (dict): The overall mDNS results from your scanner
+        single_host (dict): A single host dictionary with at least 'ip'
+
+    Returns:
+        dict: The updated single_host dict, now with a 'mdns' key if services match
+    """
+    # Ensure there's a 'mdns' field
+    single_host["mdns"] = []
+
+    # This host's IP
+    host_ip = single_host["ip"]
+
+    # Go through each service in the mDNS results
+    for service_name, service_info in mdns_results.items():
+        addresses = service_info.get("addresses", [])
+        # If the host IP is in this service's addresses, attach the info
+        if host_ip in addresses:
+            single_host["mdns"].append({
+                "name": service_name,
+                "type": service_info["type"],
+                "port": service_info["port"],
+                "properties": service_info["properties"],
+            })
+
+    return single_host

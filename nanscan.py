@@ -1387,6 +1387,8 @@ def save_results(live_hosts: list[DiscoveredHost], port_results, web_results, sn
             "snmp_info": snmp_results.get(ip, "SNMP port not open"),
             "ssl_certificates": ssl_results.get(ip, "No SSL certificate info")
         }
+        if mdns_services:
+            host_results = mdns.add_mdns_results_to_host(mdns_services, host_results)
 
         # Save to JSON file
         with open(f"{host_dir}/scan_results.json", "w") as f:
