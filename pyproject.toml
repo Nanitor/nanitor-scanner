@@ -24,6 +24,9 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 180
 target-version = "py311"
+[tool.black]
+line-length = 180
+target-version = ['py311']
 
 [tool.ruff.lint]
 select = [
@@ -34,6 +37,10 @@ select = [
     "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
+]
+ignore = [
+    "W293",  # Blank line contains whitespace
+    "I001",  # Import block is unsorted
 ]
 
 [tool.ruff.lint.isort]
