@@ -40,7 +40,7 @@ import urllib3
 import xmltodict
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.x509.oid import ExtensionOID, NameOID
+from cryptography.x509.oid import ExtensionOID
 from mac_vendor_lookup import MacLookup
 from pysnmp.hlapi import (
     CommunityData,
@@ -914,52 +914,44 @@ def take_webpage_screenshot(url: str, output_file: str) -> bool:
         return False
 
 
-# TODO: Should we have a httpx module? httpx.py ? or tool_httpx or scantool_httpx? Something like this.
-# TODO: It would be good to keep the parser for httpx along with some other httpx functions, and then we can also add a test case for it...
 def parse_httpx_output(output_file: str) -> dict:
     """Parse httpx JSON output into a structured format."""
     try:
         with open(output_file) as f:
-            content = f.read()
-
-        # Initialize result structure
-        result = {"host": "", "ip": "", "port": "", "banner": "", "vulnerabilities": []}
-
-        # Parse each line as JSON
-        for line in content.split("\n"):
-            if not line.strip():
-                continue
-
-            data = json.loads(line)
-
-            # Extract information
-            result["host"] = data.get("host", "")
-            result["ip"] = data.get("ip", "")
-            result["port"] = str(data.get("port", ""))
-            result["banner"] = data.get("web-server", "")
-
-            # Add security findings
-            if data.get("status-code", 0) >= 400:
-                result["vulnerabilities"].append(
-                    {
-                        "path": "/",
-                        "description": f"HTTP Status Code: {data.get('status-code')}",
-                    }
-                )
-
-            # Add technology information
-            if data.get("tech"):
-                result["vulnerabilities"].append(
-                    {
-                        "path": "/",
-                        "description": f"Technologies: {', '.join(data.get('tech', []))}",
-                    }
-                )
-
+            content = f.read().strip()
+        if not content:
+            return {}
+        data = json.loads(content)
+        result = {
+            "timestamp": data.get("timestamp", ""),
+            "cdn": data.get("cdn", ""),
+            "cdn_name": data.get("cdn_name", ""),
+            "cdn_type": data.get("cdn_type", ""),
+            "method": data.get("method", ""),
+            "url": data.get("url", ""),
+            "host": data.get("host", ""),
+            "ip": data.get("ip", data.get("host", "")),
+            "port": str(data.get("port", "")),
+            "scheme": data.get("scheme", ""),
+            "webserver": data.get("webserver", ""),
+            "content_type": data.get("content_type", ""),
+            "content_length": data.get("content_length", ""),
+            "status_code": data.get("status_code", ""),
+            "location": data.get("location", ""),
+            "favicon": data.get("favicon", ""),
+            "hash": data.get("hash", ""),
+            "jarm": data.get("jarm", ""),
+            "tech": data.get("tech", ""),
+            "cname": data.get("cname", ""),
+            "asn": data.get("asn", ""),
+            "knowledgebase": data.get("knowledgebase", {}),
+            "title": data.get("title", ""),
+            "body_preview": data.get("body_preview", ""),
+        }
         return result
     except Exception as e:
         log_error(f"Error parsing httpx output: {str(e)}")
-        return None
+        return {}
 
 
 def parse_nuclei_output(output_file: str) -> dict:
@@ -1021,13 +1013,12 @@ def run_web_scans(ip: str, ports: list[int]) -> dict:
     return results
 
 
-# "command": "gobuster dir -k -u {url} -w wordlists/quicklist.txt -x php,html,txt,asp,aspx,jsp,xml -r --random-agent -q -o {output_file}",
 def gobuster_scan(ip: str, port: int) -> dict:
     """
     Run gobuster for directory bruteforcing on the given IP and port.
     Returns a dict with the gobuster results.
     """
-    url = f"http://{ip}:{port}" if port not in [443,8443] else f"https://{ip}:{port}"
+    url = f"http://{ip}:{port}" if port not in [443, 8443] else f"https://{ip}:{port}"
     output_dir = Path(f"scan_results/{ip}")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"gobuster_{port}.json"
@@ -1092,7 +1083,7 @@ def parse_gobuster_output(file_path: str) -> dict:
     # then some whitespace, then "(Status:" followed by digits, then ") [Size:" and digits, then "]"
     pattern = re.compile(r"^(?P<path>/\S+)\s+\(Status:\s*(?P<status>\d+)\)\s+\[Size:\s*(?P<size>\d+)\]")
     try:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -1130,6 +1121,8 @@ def httpx_scan(ip: str, port: int) -> dict:
         "-o",
         str(output_file),
         "-title",
+        "-body-preview",
+        "-favicon",
         "-status-code",
         "-tech-detect",
         "-web-server",
@@ -1714,80 +1707,6 @@ Examples:
 
     # 2) Orchestrate all scanning
     scan_results = run_all_scans(live_hosts)
-    # This returns a dictionary with
-    #   "port_results", "web_results", "snmp_results", "ssl_results",
-    #   "os_info", "vendor_info"
-
-    # Resolve vendor information
-    # TODO: Might not be needed if we have this already from live_hosts (if nmap used ARP)
-    # log_phase("MAC VENDOR RESOLUTION")
-    # scan_stats["status_line"] = "Resolving vendor information"
-    # vendor_info = resolve_vendors(live_ips)
-
-    # Perform OS detection if running as root
-    # os_info = {}
-    # if is_root():
-    #    log_phase("OS DETECTION")
-    #    scan_stats["status_line"] = "Performing OS detection"
-    #    os_info = os_fingerprinting(live_ips)
-
-    # Perform port scanning
-    # log_phase("PORT SCANNING")
-    # scan_stats["status_line"] = "Performing port scanning"
-    # port_results = {}
-    # with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-    #    future_to_ip = {executor.submit(port_scan, ip): ip for ip in live_ips}
-    #    for future in as_completed(future_to_ip):
-    #        ip = future_to_ip[future]
-    #        try:
-    #            port_results[ip] = future.result()
-    #        except Exception as e:
-    #            log_error(f"Port scan failed for {ip}: {str(e)}")
-
-    # Perform web scanning
-    # log_phase("WEB SCANNING")
-    # scan_stats["status_line"] = "Performing web scanning"
-    # web_results = {}
-    # with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-    #    future_to_ip = {
-    #        executor.submit(web_scan, ip, port_results.get(ip, {}).get("tcp", [])): ip
-    #        for ip in live_ips
-    #    }
-    #    for future in as_completed(future_to_ip):
-    #        ip = future_to_ip[future]
-    #        try:
-    #            web_results[ip] = future.result()
-    #        except Exception as e:
-    #            log_error(f"Web scan failed for {ip}: {str(e)}")
-
-    # Perform SNMP scanning
-    # log_phase("SNMP SCANNING")
-    # scan_stats["status_line"] = "Performing SNMP scanning"
-    # snmp_results = {}
-    # with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-    #    future_to_ip = {executor.submit(snmp_scan, ip, port_results): ip for ip in live_ips}
-    #    for future in as_completed(future_to_ip):
-    #        ip = future_to_ip[future]
-    #        try:
-    #            snmp_results[ip] = future.result()
-    #        except Exception as e:
-    #            log_error(f"SNMP scan failed for {ip}: {str(e)}")
-
-    # Perform SSL scanning
-    # log_phase("SSL/TLS SCANNING")
-    # scan_stats["status_line"] = "Performing SSL/TLS scanning"
-    ##ssl_results = {}
-    # with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
-    #    future_to_ip = {
-    #        executor.submit(ssl_scan, ip, port_results.get(ip, {}).get("tcp", [])): ip
-    #        for ip in live_ips
-    #    }
-    #    for future in as_completed(future_to_ip):
-    #        ip = future_to_ip[future]
-    #        try:
-    #            ssl_results[ip] = future.result()
-    #        except Exception as e:
-    #            log_error(f"SSL scan failed for {ip}: {str(e)}")
 
     # When all scanning is complete, signal the mDNS thread to stop.
     mdns_stop_event.set()
