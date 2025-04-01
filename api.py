@@ -3,17 +3,18 @@ import os
 import json
 import requests
 import argparse
-from typing import Dict, Any
+from typing import Any
 from models import DiscoveredHost  # Shared type definition
+
 
 def convert_scan_results_to_nanitor_import(
     live_hosts: list[DiscoveredHost],
-    scan_results: Dict[str, Any],
+    scan_results: dict[str, Any],
     organization_id: int = None,
     source_name: str = "nanitor-scanner",
     source_type: str = "api",
-    suppress_events: bool = False
-) -> Dict[str, Any]:
+    suppress_events: bool = False,
+) -> dict[str, Any]:
     """
     Convert scanner results into Nanitor's DeviceImportForm JSON format.
 
@@ -75,16 +76,11 @@ def convert_scan_results_to_nanitor_import(
         }
         assets.append(asset)
 
-    import_payload = {
-        "assets": assets,
-        "organization_id": organization_id,
-        "source_name": source_name,
-        "source_type": source_type,
-        "suppress_events": suppress_events
-    }
+    import_payload = {"assets": assets, "organization_id": organization_id, "source_name": source_name, "source_type": source_type, "suppress_events": suppress_events}
     return import_payload
 
-def send_to_nanitor_api(import_data: Dict[str, Any]) -> Any:
+
+def send_to_nanitor_api(import_data: dict[str, Any]) -> Any:
     """
     Send the import JSON data to Nanitor's API.
 
@@ -97,34 +93,29 @@ def send_to_nanitor_api(import_data: Dict[str, Any]) -> Any:
     """
     base_url = os.getenv("NANITOR_API_URL")
     api_key = os.getenv("NANITOR_API_KEY")
-    
+
     if not base_url or not api_key:
-        raise ValueError(
-            "Missing required environment variables. Please set NANITOR_API_URL (e.g. https://my.nanitor.net/system_api) and NANITOR_API_KEY."
-        )
-    
+        raise ValueError("Missing required environment variables. Please set NANITOR_API_URL (e.g. https://my.nanitor.net/system_api) and NANITOR_API_KEY.")
+
     url = f"{base_url}/system_api/assets/import"
-    headers = {
-        "Content-Type": "application/json",
-        "api_key": api_key
-    }
-    
+    headers = {"Content-Type": "application/json", "api_key": api_key}
+
     response = requests.post(url, headers=headers, json=import_data)
     if response.status_code == 200:
         return response.json()
     else:
         response.raise_for_status()
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Nanitor API Import Tool - Import scan results in Nanitor JSON format.",
-        epilog="Example usage: python api.py import nanitor_import.json --org-id 5"
+        description="Nanitor API Import Tool - Import scan results in Nanitor JSON format.", epilog="Example usage: python api.py import nanitor_import.json --org-id 5"
     )
     parser.add_argument("command", choices=["import"], help="Command to execute. Currently only supports 'import'.")
     parser.add_argument("file", help="Path to the JSON file to import (e.g. nanitor_import.json).")
     parser.add_argument("--org-id", type=int, required=True, help="Organization ID to import assets into.")
     args = parser.parse_args()
-    
+
     # Check for required environment variables.
     base_url = os.getenv("NANITOR_API_URL")
     api_key = os.getenv("NANITOR_API_KEY")
@@ -136,18 +127,18 @@ def main():
             "  - NANITOR_API_KEY: Your API key with write permissions."
         )
         exit(1)
-    
+
     # Read the JSON file containing the Nanitor import payload.
     try:
-        with open(args.file, "r") as f:
+        with open(args.file) as f:
             import_data = json.load(f)
     except Exception as e:
         print(f"Error reading file {args.file}: {e}")
         exit(1)
-    
+
     # Set or override the organization ID in the payload.
     import_data["organization_id"] = args.org_id
-    
+
     try:
         response = send_to_nanitor_api(import_data)
         print("Import successful! API response:")
@@ -156,6 +147,6 @@ def main():
         print("Import failed:", str(e))
         exit(1)
 
+
 if __name__ == "__main__":
     main()
-

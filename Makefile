@@ -20,7 +20,7 @@ update-deps:
 
 # Format code
 format:
-	ruff format .
+	black .
 
 # Check for outdated packages
 outdated:
@@ -31,10 +31,3 @@ venv:
 	python -m venv venv
 	. venv/bin/activate && pip install --upgrade pip
 	. venv/bin/activate && make install
-
-# Update Nuclei templates
-update-nuclei-templates:
-	@echo "Updating Nuclei templates..."
-	@mkdir -p templates/nuclei
-	@nuclei -update-templates -update-template-dir templates/nuclei
-	@echo "Nuclei templates updated successfully."

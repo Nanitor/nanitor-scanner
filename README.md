@@ -116,7 +116,7 @@ Results are saved to the `scan_results` directory in the following structure:
 - `scan_results/{ip}`: Detailed scan results for each host and tool outputs
 - `scan_results/{ip}/scan_results.json`: Detailed scan results for each host
 
-To change the output folder, use `--results-dir`.
+To change the output folder, use `--out-dir`.
 
 ## Feedback
 

@@ -7,7 +7,8 @@
 # 1. TODO: make use of scan modules (we have fancy: get_scan_modules)
 # 1. Update the README...
 # 1. Provide a Dockerfile and make commands to build...
-# 1. Setup CI with linting, and some runs... (not sure if we can run it on github.. or if we can mock something, maybe just run it on the local machine or something, not perfect, but something.....)
+# 1. Setup CI with linting, and some runs... (not sure if we can run it on github.. or if we can mock something,
+#    maybe just run it on the local machine or something, not perfect, but something.....)
 # 1. Banner, http header results...
 # 1. Carify VERBOSE_OUTPUT vs DEBUG_MODE and add debug mode as a flag, or just use verbose?
 # 10. Eliminate TODOs
@@ -27,7 +28,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from ipaddress import ip_network
 from pathlib import Path
@@ -127,7 +128,7 @@ def supports_color():
 # Set color support flag
 USE_COLOR = supports_color()
 
-# ----------------------- Configuration ----------------------- 
+# ----------------------- Configuration -----------------------
 # Scanning tools used. Some are required, some optional.
 SCAN_TOOLS = {
     "nmap": {
@@ -158,21 +159,21 @@ def get_scan_modules():
             "required": True,
             "root_required": False,
             "required_tools": ["nmap"],
-            "function": discover_live_hosts, #network
+            "function": discover_live_hosts,  # network
         },
         "port_scan": {
             "description": "TCP/UDP port scanning using nmap",
             "required": True,
             "root_required": True,
             "required_tools": ["nmap"],
-            "function": port_scan, #ip
+            "function": port_scan,  # ip
         },
         "os_fingerprint": {
             "description": "OS fingerprinting with Nmap",
             "required": False,
             "root_required": True,
             "required_tools": ["nmap"],
-            "function": os_fingerprinting, #ip_addresses
+            "function": os_fingerprinting,  # ip_addresses
         },
         "httpx": {
             "description": "Web header and technology scan",
@@ -193,14 +194,14 @@ def get_scan_modules():
             "required": False,
             "root_required": False,
             "required_tools": [],
-            "function": ssl_scan, # (ip, ports)
+            "function": ssl_scan,  # (ip, ports)
         },
         "snmp_scan": {
             "description": "Scan for SNMP info",
             "required": False,
             "root_required": False,
             "required_tools": [],
-            "function": snmp_scan, # (ip, port_results)
+            "function": snmp_scan,  # (ip, port_results)
         },
     }
 
@@ -249,7 +250,7 @@ COMMON_UDP_PORTS = DEFAULT_UDP_PORTS.copy()
 SNMP_PORT = DEFAULT_SNMP_PORT
 SSL_PORTS = DEFAULT_SSL_PORTS.copy()
 ALLOWED_INTERFACES = DEFAULT_INTERFACES.copy()
-DEBUG_MODE = True # Used to skip the prompt so that one can use tools like pdb without interference.
+DEBUG_MODE = True  # Used to skip the prompt so that one can use tools like pdb without interference.
 WEB_PORTS = [80, 443, 8080, 8443]
 RESULTS_DIR = "scan_results"
 # ----------------------- End Configuration -------------------
@@ -281,7 +282,6 @@ def calculate_network(ip: str, netmask: str) -> str:
     """
     network = ip_network(f"{ip}/{netmask}", strict=False)
     return str(network)
-
 
 
 # nmap ping discovery using nmap -sn
@@ -859,6 +859,7 @@ def check_dependencies():
 
     return missing_tools, missing_optional
 
+
 def print_tools_used_summary(scan_mode, skip_tools=None):
     print("\nTools used:")
     print("-" * 80)
@@ -878,8 +879,12 @@ def print_tools_used_summary(scan_mode, skip_tools=None):
         else:
             status = f"✓ (used - {path})"
 
+        if required:
+            status += " - required"
+
         print(f"• {tool:<12} {status}")
     print("-" * 80)
+
 
 def take_webpage_screenshot(url: str, output_file: str) -> bool:
     """
@@ -1381,7 +1386,7 @@ def print_completion_banner(duration_str: str, import_file: str):
     """
     Print the final scan completion banner with a consistent format,
     including the scan summary and instructions for importing the Nanitor JSON.
-    
+
     Assumes the following globals are available:
       - scan_stats: A dict containing scan summary details.
       - RESULTS_DIR: The directory where results are saved.
@@ -1391,14 +1396,14 @@ def print_completion_banner(duration_str: str, import_file: str):
     import os
 
     print("\n\n")
-    
+
     # Header
     header = "=" * 80
     print(colorize(header, Fore.GREEN))
     print(colorize("=" * 30 + " SCAN COMPLETE " + "=" * 30, Fore.GREEN))
     print(colorize(header, Fore.GREEN))
     print("")
-    
+
     # Scan summary details
     print(colorize("📊 SCAN SUMMARY", Fore.CYAN))
     print(colorize(f"⏱️  Duration: {duration_str}", Fore.WHITE))
@@ -1407,23 +1412,23 @@ def print_completion_banner(duration_str: str, import_file: str):
     print(colorize(f"📡 Open UDP ports found: {scan_stats['open_udp_ports']}", Fore.WHITE))
     print(colorize(f"🌐 Web services detected: {scan_stats['web_services']}", Fore.WHITE))
     print(colorize(f"⚠️  Vulnerabilities found: {scan_stats['vulnerabilities']}", Fore.WHITE))
-    
+
     end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(colorize(f"🕒 Scan completed at: {end_time}", Fore.WHITE))
     print(colorize(f"💾 Results saved to: {os.path.abspath(RESULTS_DIR)}", Fore.WHITE))
     print(colorize(f"Nanitor import JSON saved to: {os.path.abspath(import_file)}", Fore.WHITE))
     print("")
-    
+
     # Nanitor import JSON details and instructions
     print(colorize("To import the results into your Nanitor instance, run:", Fore.GREEN))
     print(colorize(f"  python api.py import {os.path.abspath(import_file)} --org-id <YOUR_ORGANIZATION_ID>", Fore.YELLOW))
     print("")
-    
+
     if scan_stats["vulnerabilities"] > 0:
         print(colorize("⚠️  ATTENTION: Vulnerabilities were detected during the scan!", Fore.RED))
         print(colorize("   Please review the detailed scan results for more information.", Fore.YELLOW))
         print("")
-    
+
     # Final thank you message
     print(colorize("Thank you for using Nanitor Network Scanner!", Fore.WHITE))
     print(colorize("If you encounter any issues or have any requests, please submit an issue on our GitHub repo:", Fore.WHITE))
@@ -1498,7 +1503,7 @@ Examples:
         help="Run in minimal mode (non-root): skips or degrades root-required modules like UDP and OS fingerprinting.",
     )
     parser.add_argument(
-        "--results-dir",
+        "--out-dir",
         default="scan_results",
         help="Directory to save scan results (default: scan_results/)",
     )
@@ -1541,7 +1546,7 @@ Examples:
     COMMON_UDP_PORTS = args.target_udp_ports
     SSL_PORTS = args.ssl_ports
     SNMP_PORT = args.snmp_port
-    RESULTS_DIR = args.results_dir
+    RESULTS_DIR = args.out_dir
 
     if is_root():
         scan_mode = "root"
@@ -1598,7 +1603,7 @@ Examples:
             "Skipped (requires root)" if scan_mode == "minimal" else "Enabled",
         ),
         ("Verbose output (debug)", "Enabled" if VERBOSE_OUTPUT else "Disabled"),
-        ("Results directory", os.path.abspath(args.results_dir)),
+        ("Results directory", os.path.abspath(RESULTS_DIR)),
     ]
 
     # Print startup message
@@ -1696,13 +1701,13 @@ Examples:
     import_payload = convert_scan_results_to_nanitor_import(
         live_hosts,
         scan_results,
-        organization_id=None # We don't know the organization id yet. It needs to be populated before importing.
+        organization_id=None,  # We don't know the organization id yet. It needs to be populated before importing.
     )
     # Save the converted JSON to a file, e.g., nanitor_import.json.
     import_file = os.path.join(RESULTS_DIR, "nanitor_import.json")
     with open(import_file, "w") as f:
         json.dump(import_payload, f, indent=4)
-    
+
     log_success(f"Nanitor import JSON saved to {import_file}")
 
     # Calculate and display scan summary

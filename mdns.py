@@ -13,13 +13,7 @@ class MDNSListener:
         # Check if we're dealing with the meta-service.
         if service_type.lower() == "_services._dns-sd._udp.local.":
             # Store the service name with minimal info.
-            self.services[name] = {
-                "type": service_type,
-                "name": name,
-                "addresses": [],
-                "port": None,
-                "properties": {}
-            }
+            self.services[name] = {"type": service_type, "name": name, "addresses": [], "port": None, "properties": {}}
             print(f"[mDNS] Discovered meta service: {name}")
             return
 
@@ -33,13 +27,7 @@ class MDNSListener:
         # Recursively decode any bytes in the properties
         decoded_props = decode_bytes(info.properties)
 
-        self.services[name] = {
-            "type": service_type,
-            "name": name,
-            "addresses": addresses,
-            "port": info.port,
-            "properties": decoded_props
-        }
+        self.services[name] = {"type": service_type, "name": name, "addresses": addresses, "port": info.port, "properties": decoded_props}
         if addresses:
             print(f"[mDNS] Discovered service: {name} ({service_type}) at {addresses[0]}:{info.port}")
         else:
@@ -60,9 +48,9 @@ class MDNSDiscovery:
         self.zeroconf = Zeroconf()
         self.listener = MDNSListener()
 
-         # If no service types are provided, default to a couple of typical ones.
+        # If no service types are provided, default to a couple of typical ones.
         if service_types is None:
-            self.service_types = ['_http._tcp.local.', '_workstation._tcp.local.']
+            self.service_types = ["_http._tcp.local.", "_workstation._tcp.local."]
         else:
             self.service_types = service_types
 
@@ -82,13 +70,13 @@ class MDNSDiscovery:
 def run_mdns_discovery_until(stop_event: threading.Event, min_duration=10, service_types=None):
     """
     Run mDNS discovery until stop_event is set, ensuring it runs at least min_duration seconds.
-    
+
     TWO-PHASE logic if service_types is None:
       Phase 1: Query meta-service (_services._dns-sd._udp.local.) to discover available service types.
                Runs for half of min_duration (or until stop_event).
       Phase 2: For each discovered service type, gather detailed info.
                Runs for the remaining time (or until stop_event).
-    
+
     SINGLE-PHASE if service_types is not None:
       Just query those service types once, for min_duration or until stop_event.
 
@@ -102,7 +90,7 @@ def run_mdns_discovery_until(stop_event: threading.Event, min_duration=10, servi
         print("[mDNS] PHASE 1: Querying meta-service (_services._dns-sd._udp.local.)")
         half_duration = min_duration / 2
 
-        meta_disc = MDNSDiscovery(service_types=['_services._dns-sd._udp.local.'])
+        meta_disc = MDNSDiscovery(service_types=["_services._dns-sd._udp.local."])
         meta_disc.start()
 
         while (time.time() - start_time) < half_duration and not stop_event.is_set():
@@ -181,6 +169,7 @@ def run_mdns_in_background(min_duration=10, service_types=None):
     t.start()
     return stop_event, services_container
 
+
 def decode_bytes(obj):
     """
     Recursively decode bytes in dictionaries, lists, or individual values into UTF-8 strings.
@@ -223,12 +212,14 @@ def add_mdns_results_to_host(mdns_results, single_host):
         addresses = service_info.get("addresses", [])
         # If the host IP is in this service's addresses, attach the info
         if host_ip in addresses:
-            single_host["mdns"].append({
-                "name": service_name,
-                "type": service_info["type"],
-                "port": service_info["port"],
-                "properties": service_info["properties"],
-            })
+            single_host["mdns"].append(
+                {
+                    "name": service_name,
+                    "type": service_info["type"],
+                    "port": service_info["port"],
+                    "properties": service_info["properties"],
+                }
+            )
 
     return single_host
 
@@ -240,7 +231,7 @@ def map_mdns_results_by_ip(mdns_services: dict) -> dict:
     Args:
         mdns_services: A dictionary where keys are service names and values are dicts containing mDNS info,
                        including an 'addresses' key (a list of IPs).
-                       
+
     Returns:
         A dictionary mapping host IPs to lists of mDNS result dicts.
     """
