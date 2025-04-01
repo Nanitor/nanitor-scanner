@@ -1025,7 +1025,7 @@ def gobuster_scan(ip: str, port: int) -> dict:
         "-u",
         url,
         "-w",
-        "wordlists/quicklist.txt",
+        "contrib/wordlists/quicklist.txt",
         "-x",
         "php,html,txt,asp,aspx,jsp,xml",
         "-r",
