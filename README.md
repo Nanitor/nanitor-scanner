@@ -10,20 +10,19 @@ A comprehensive network scanner for security assessments and discovery.
 - Web server detection and fingerprinting
 - SSL/TLS certificate analysis
 - SNMP information gathering
-- Automated vulnerability scanning with Nuclei
 - Colorized terminal output
 - JSON results for further analysis
-- Nanitor asset import
+- Nanitor import: Importing scan results into Nanitor
 
 ## Requirements
 
-- Linux (not tested on other operating systems)
-- Python 3.11 or higher
-- Root/admin privileges for some scanning features
+- **OS:** Linux (tested primarily on Linux)  
+- **Python:** 3.11 
+- **Privileges:** Root/admin required for some features
 
 ## Installation
 
-### From Source
+### From source
 
 1. Clone the repository:
 ```bash
@@ -45,6 +44,32 @@ pip install -r requirements.txt
 4. Run the scanner:
 ```bash
 sudo -E python nanscan.py
+```
+
+### Docker installation
+
+You can use Docker to run the scanner. This has the advantage of having all the right dependencies and works out of the box.
+
+#### Option 1: Pull the Prebuilt Image
+
+```
+docker pull ghcr.io/nanitor/nanitor-scanner:latest
+docker run --rm --net=host --cap-add=NET_ADMIN \
+   -e NANITOR_API_URL=https://your.nanitor.api \
+   -e NANITOR_API_KEY=YourAPIKey \
+   ghcr.io/nanitor/nanitor-scanner:latest
+```
+
+### Option 2: Build Locally
+
+```
+git clone https://github.com/nanitor/nanitor-scanner.git
+cd nanitor-scanner
+docker build -t nanitor-scanner .
+docker run --rm --net=host --cap-add=NET_ADMIN \
+   -e NANITOR_API_URL=https://your.nanitor.api \
+   -e NANITOR_API_KEY=YourAPIKey \
+   nanitor-scanner
 ```
 
 ### Examples
@@ -71,19 +96,25 @@ python api.py import scan_results/nanitor_import.json -org-id 123
 The scanner uses the following external tools:
 
 - `nmap`: For advanced port scanning and fingerprinting
-- `gobuster`: For web directory enumeration
+- `gobuster`: For web directory enumeration (with a minimal word list)
 - `httpx`: For web discovery
-- `nuclei`: For automated vulnerability scanning
+
+## Future Improvements
+
+- Unified Module Interface:
+Consider refactoring scan modules to use a unified ScanContext so that each module accepts consistent inputs and returns results keyed by host IP.
+
+- Additional Features:
+Future work may include packet sniffing (e.g., DHCP requests)
 
 ## Output
 
 Results are saved to the `scan_results` directory in the following structure:
 
 - `scan_results/summary.json`: Overall scan summary
+- `scan_results/nanitor_import.json`: Scan results ready for import via Nanitor API
+- `scan_results/{ip}`: Detailed scan results for each host and tool outputs
 - `scan_results/{ip}/scan_results.json`: Detailed scan results for each host
-- `scan_results/{ip}/ssl/{port}.pem`: SSL certificates
-- `scan_results/{ip}/snmpwalk.txt`: SNMP information
-- `scan_results/nuclei/`: Nuclei scan results
 
 To change the output folder, use `--results-dir`.
 

@@ -231,3 +231,25 @@ def add_mdns_results_to_host(mdns_results, single_host):
             })
 
     return single_host
+
+
+def map_mdns_results_by_ip(mdns_services: dict) -> dict:
+    """
+    Convert mDNS results from a service-keyed dictionary to a mapping of host IPs to a list of mDNS entries.
+
+    Args:
+        mdns_services: A dictionary where keys are service names and values are dicts containing mDNS info,
+                       including an 'addresses' key (a list of IPs).
+                       
+    Returns:
+        A dictionary mapping host IPs to lists of mDNS result dicts.
+    """
+    mapping = {}
+    for service_name, service_info in mdns_services.items():
+        addresses = service_info.get("addresses", [])
+        # Optionally, you might want to include the service name in the info.
+        service_entry = service_info.copy()
+        service_entry["service_name"] = service_name
+        for ip in addresses:
+            mapping.setdefault(ip, []).append(service_entry)
+    return mapping
