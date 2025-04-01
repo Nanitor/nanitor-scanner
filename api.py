@@ -64,6 +64,8 @@ def convert_scan_results_to_nanitor_import(
             "reverse_dns_hostnames": [host.hostnames] if host.hostnames else [],
             "mdns_info": mdns_results.get(ip, "No mdns info available"),
         }
+        # Clean up any non-safe characters in the metadata prior to import.
+        metadata = recursively_escape_strings(metadata)
 
         # Build the asset entry conforming to ImportDeviceEntry.
         asset = {
@@ -78,6 +80,22 @@ def convert_scan_results_to_nanitor_import(
 
     import_payload = {"assets": assets, "organization_id": organization_id, "source_name": source_name, "source_type": source_type, "suppress_events": suppress_events}
     return import_payload
+
+def escape_string(s: str) -> str:
+    if not isinstance(s, str):
+        return s
+    return s.encode("unicode_escape").decode("ascii")
+
+
+def recursively_escape_strings(data):
+    if isinstance(data, dict):
+        return {k: recursively_escape_strings(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [recursively_escape_strings(item) for item in data]
+    elif isinstance(data, str):
+        return escape_string(data)
+    else:
+        return data
 
 
 def send_to_nanitor_api(import_data: dict[str, Any]) -> Any:
@@ -97,8 +115,11 @@ def send_to_nanitor_api(import_data: dict[str, Any]) -> Any:
     if not base_url or not api_key:
         raise ValueError("Missing required environment variables. Please set NANITOR_API_URL (e.g. https://my.nanitor.net/system_api) and NANITOR_API_KEY.")
 
-    url = f"{base_url}/system_api/assets/import"
-    headers = {"Content-Type": "application/json", "api_key": api_key}
+    url = f"{base_url}/assets/import"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
 
     response = requests.post(url, headers=headers, json=import_data)
     if response.status_code == 200:
@@ -139,10 +160,13 @@ def main():
     # Set or override the organization ID in the payload.
     import_data["organization_id"] = args.org_id
 
+    #For debugging:
+    #print(json.dumps(import_data, indent=4))
+
     try:
         response = send_to_nanitor_api(import_data)
         print("Import successful! API response:")
-        print(json.dumps(response, indent=2))
+        print(json.dumps(response, indent=4))
     except Exception as e:
         print("Import failed:", str(e))
         exit(1)
