@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
 
-# TODO:
-# 4. Modularize more scanners.
-# 5. Add packet sniffing capture (esp. DHCP requests)
-# 8. Ability to upload directly to Nanitor's API (NANITOR_INSTANCE_URL, NANITOR_API_KEY or NANITOR_API_URL/KEY?)
-# 1. TODO: make use of scan modules (we have fancy: get_scan_modules)
-# 1. Update the README...
-# 1. Provide a Dockerfile and make commands to build...
-# 1. Setup CI with linting, and some runs... (not sure if we can run it on github.. or if we can mock something,
-#    maybe just run it on the local machine or something, not perfect, but something.....)
-# 1. Banner, http header results...
-# 1. Carify VERBOSE_OUTPUT vs DEBUG_MODE and add debug mode as a flag, or just use verbose?
-# 10. Eliminate TODOs
-
-
 # Standard library imports
 import argparse
 import json
