@@ -1241,6 +1241,22 @@ def run_all_scans(live_hosts: list[DiscoveredHost]) -> dict:
     scan_stats["status_line"] = "Retrieving HTTP headers"
     http_header_tasks = [{"ip": ip, "port": port} for ip in ips for port in WEB_PORTS if port in port_results.get(ip, {}).get("tcp", [])]
     http_header_results = run_tasks_in_parallel(http_header_scan, http_header_tasks)
+    # Merge header results into port_results under the "headers" key.
+    for ip in ips:
+        result = http_header_results.get(ip)
+        if not result:
+            continue
+        port = result.get("port")
+        headers = result.get("headers")
+
+        if port not in WEB_PORTS or not headers:
+            continue
+        if ip not in port_results:
+            port_results[ip] = {}
+        if "headers" not in port_results[ip]:
+            port_results[ip]["headers"] = {}
+
+        port_results[ip]["headers"][port] = headers
 
     # 5) Web scanning
     log_phase("WEB SCANNING")
