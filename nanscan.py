@@ -1012,7 +1012,7 @@ def httpx_scan(ip: str, port: int) -> dict:
 
 def signal_handler(signum, frame):
     """Handle interrupt signals gracefully."""
-    log_info("\nInterrupt received. Exiting...", flush=True)
+    log_info("\nInterrupt received. Exiting...")
     sys.exit(0)
 
 
