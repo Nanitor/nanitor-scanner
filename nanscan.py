@@ -1518,12 +1518,12 @@ Examples:
         print("=" * 80)
 
         print("\n📊 SCAN SUMMARY")
-        print(f"⏱️  Duration: {str(timedelta(seconds=int((datetime.now() - scan_stats['scan_start_time']).total_seconds())))}")
+        print(f"⏱️ Duration: {str(timedelta(seconds=int((datetime.now() - scan_stats['scan_start_time']).total_seconds())))}")
         print("🔍 Hosts scanned: 0 (No live hosts found)")
         print("🔌 Open TCP ports found: 0")
         print("📡 Open UDP ports found: 0")
         print("🌐 Web services detected: 0")
-        print("⚠️  Vulnerabilities found: 0")
+        print("⚠️ Vulnerabilities found: 0")
 
         # Get timestamp for scan completion
         end_time = datetime.now()
