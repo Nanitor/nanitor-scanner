@@ -84,7 +84,7 @@ Scan a specific network with verbose output:
 sudo -E python nanscan.py -n 192.168.1.0/24 -v
 ```
 
-Import the results into Nanitor through the API. Make sure to set the environment variables, and **specify the right organization id**.  The data will be imported into the organization specified.
+Import the results into Nanitor through the API. Make sure to set the environment variables, and **specify the right organization ID**.  The data will be imported into the organization specified.
 ```bash
 export NANITOR_API_URL=https://my.nanitor.net/system_api
 export NANITOR_API_KEY=MySecretAPIKeywithWritePermissionHere
@@ -120,5 +120,5 @@ To change the output folder, use `--out-dir`.
 
 ## Feedback
 
-If you have any feedback, feel free to contact us or submit an Issue.  If you have anything to contribute, you can open a PR.  We will take a look at PRs though we might not accept everything.
+If you have any feedback, feel free to contact us or submit an Issue.  If you have anything to contribute, you can open a pull request.  All pull requests will be looked at, though we may not accept everything.
 
