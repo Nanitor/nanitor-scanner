@@ -81,6 +81,7 @@ def convert_scan_results_to_nanitor_import(
     import_payload = {"assets": assets, "organization_id": organization_id, "source_name": source_name, "source_type": source_type, "suppress_events": suppress_events}
     return import_payload
 
+
 def escape_string(s: str) -> str:
     if not isinstance(s, str):
         return s
@@ -116,10 +117,7 @@ def send_to_nanitor_api(import_data: dict[str, Any]) -> Any:
         raise ValueError("Missing required environment variables. Please set NANITOR_API_URL (e.g. https://my.nanitor.net/system_api) and NANITOR_API_KEY.")
 
     url = f"{base_url}/assets/import"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     response = requests.post(url, headers=headers, json=import_data)
     if response.status_code == 200:
@@ -160,8 +158,8 @@ def main():
     # Set or override the organization ID in the payload.
     import_data["organization_id"] = args.org_id
 
-    #For debugging:
-    #print(json.dumps(import_data, indent=4))
+    # For debugging:
+    # print(json.dumps(import_data, indent=4))
 
     try:
         response = send_to_nanitor_api(import_data)
