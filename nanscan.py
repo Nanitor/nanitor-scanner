@@ -135,63 +135,6 @@ SCAN_TOOLS = {
     },
 }
 
-
-# Definition of scan modules that are done.
-# TODO: We're currently not using this, but we would like to use this, possibly streamlining the flow through such definitions
-def get_scan_modules():
-    return {
-        "nmap_host_discovery": {
-            "description": "Host discovery and ping sweep to discover live hosts using nmap (nmap -sn)",
-            "required": True,
-            "root_required": False,
-            "required_tools": ["nmap"],
-            "function": discover_live_hosts,  # network
-        },
-        "port_scan": {
-            "description": "TCP/UDP port scanning using nmap",
-            "required": True,
-            "root_required": True,
-            "required_tools": ["nmap"],
-            "function": port_scan,  # ip
-        },
-        "os_fingerprint": {
-            "description": "OS fingerprinting with Nmap",
-            "required": False,
-            "root_required": True,
-            "required_tools": ["nmap"],
-            "function": os_fingerprinting,  # ip_addresses
-        },
-        "httpx": {
-            "description": "Web header and technology scan",
-            "required": False,
-            "root_required": False,
-            "required_tools": ["httpx"],
-            "function": httpx_scan,  # ip,port
-        },
-        "gobuster": {
-            "description": "Directory enumeration with a quick wordlist",
-            "required": False,
-            "root_required": False,
-            "required_tools": ["gobuster"],
-            "function": gobuster_scan,  # (ip,port)
-        },
-        "ssl_scan": {
-            "description": "Scan for SSL/TLS certs",
-            "required": False,
-            "root_required": False,
-            "required_tools": [],
-            "function": ssl_scan,  # (ip, ports)
-        },
-        "snmp_scan": {
-            "description": "Scan for SNMP info",
-            "required": False,
-            "root_required": False,
-            "required_tools": [],
-            "function": snmp_scan,  # (ip, port_results)
-        },
-    }
-
-
 # Default values for all configurable parameters
 DEFAULT_THREAD_COUNT = 10
 DEFAULT_TCP_PORTS = [
@@ -1254,7 +1197,6 @@ def run_all_scans(live_hosts: list[DiscoveredHost]) -> dict:
     vendor_info = resolve_vendors(ips)
 
     # 3) OS detection
-    # TODO: os_fingerprinting is rolling its own threading, probably clean that up and use run_tasks_in_parallel...
     os_info = {}
     if is_root():
         log_phase("OS DETECTION")
@@ -1301,7 +1243,6 @@ def run_all_scans(live_hosts: list[DiscoveredHost]) -> dict:
     http_header_results = run_tasks_in_parallel(http_header_scan, http_header_tasks)
 
     # 5) Web scanning
-    # TODO: Only if has http ports?
     log_phase("WEB SCANNING")
     scan_stats["status_line"] = "Performing web scanning"
     web_tasks = [{"ip": ip, "ports": port_results.get(ip, {}).get("tcp", [])} for ip in ips]
@@ -1671,7 +1612,6 @@ Examples:
     # Save results
     log_phase("SAVING RESULTS")
     scan_stats["status_line"] = "Saving scan results"
-    # TODO: Banner, http header results?
     save_results(
         live_hosts,
         scan_results["port_results"],
