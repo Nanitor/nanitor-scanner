@@ -1276,13 +1276,13 @@ def print_completion_banner(duration_str: str, import_file: str):
     print("")
 
     # Scan summary details
-    print(colorize("📊 SCAN SUMMARY", Fore.CYAN))
-    print(colorize(f"⏱️  Duration: {duration_str}", Fore.WHITE))
+    print(colorize(f"📊 SCAN SUMMARY", Fore.CYAN))
+    print(colorize(f"⏱️ Duration: {duration_str}", Fore.WHITE))
     print(colorize(f"🔍 Hosts scanned: {scan_stats['hosts_scanned']} of {scan_stats['hosts_found']} discovered", Fore.WHITE))
     print(colorize(f"🔌 Open TCP ports found: {scan_stats['open_tcp_ports']}", Fore.WHITE))
     print(colorize(f"📡 Open UDP ports found: {scan_stats['open_udp_ports']}", Fore.WHITE))
     print(colorize(f"🌐 Web services detected: {scan_stats['web_services']}", Fore.WHITE))
-    print(colorize(f"⚠️  Vulnerabilities found: {scan_stats['vulnerabilities']}", Fore.WHITE))
+    print(colorize(f"⚠️ Vulnerabilities found: {scan_stats['vulnerabilities']}", Fore.WHITE))
 
     end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(colorize(f"🕒 Scan completed at: {end_time}", Fore.WHITE))
