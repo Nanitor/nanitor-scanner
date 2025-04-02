@@ -1276,7 +1276,7 @@ def print_completion_banner(duration_str: str, import_file: str):
     print("")
 
     # Scan summary details
-    print(colorize(f"📊 SCAN SUMMARY", Fore.CYAN))
+    print(colorize("📊 SCAN SUMMARY", Fore.CYAN))
     print(colorize(f"⏱️ Duration: {duration_str}", Fore.WHITE))
     print(colorize(f"🔍 Hosts scanned: {scan_stats['hosts_scanned']} of {scan_stats['hosts_found']} discovered", Fore.WHITE))
     print(colorize(f"🔌 Open TCP ports found: {scan_stats['open_tcp_ports']}", Fore.WHITE))
