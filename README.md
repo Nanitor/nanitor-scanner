@@ -19,6 +19,7 @@ A comprehensive network scanner for security assessments and discovery.
 - **OS:** Linux (tested primarily on Linux)  
 - **Python:** 3.11 
 - **Privileges:** Root/admin required for some features
+- **Tools:** The external tools specified in Dependencies and External tools below need to be installed.
 
 ## Installation
 
@@ -41,35 +42,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Run the scanner:
+4. Install the needed depencencies (nmap, gobuster, httpx).
+
+5. Run the scanner:
 ```bash
 sudo -E python nanscan.py
-```
-
-### Docker installation
-
-You can use Docker to run the scanner. This has the advantage of having all the right dependencies and works out of the box.
-
-#### Option 1: Pull the Prebuilt Image
-
-```
-docker pull ghcr.io/nanitor/nanitor-scanner:latest
-docker run --rm --net=host --cap-add=NET_ADMIN \
-   -e NANITOR_API_URL=https://your.nanitor.api \
-   -e NANITOR_API_KEY=YourAPIKey \
-   ghcr.io/nanitor/nanitor-scanner:latest
-```
-
-### Option 2: Build Locally
-
-```
-git clone https://github.com/nanitor/nanitor-scanner.git
-cd nanitor-scanner
-docker build -t nanitor-scanner .
-docker run --rm --net=host --cap-add=NET_ADMIN \
-   -e NANITOR_API_URL=https://your.nanitor.api \
-   -e NANITOR_API_KEY=YourAPIKey \
-   nanitor-scanner
 ```
 
 ### Examples
@@ -91,13 +68,37 @@ export NANITOR_API_KEY=MySecretAPIKeywithWritePermissionHere
 python api.py import scan_results/nanitor_import.json -org-id 123
 ```
 
-## External Tools
+## Dependencies and External Tools
 
-The scanner uses the following external tools:
+### Python environment
 
-- `nmap`: For advanced port scanning and fingerprinting
-- `gobuster`: For web directory enumeration (with a minimal word list)
-- `httpx`: For web discovery
+The Nanitor scanner is built in Python.  The Python configuration required is specified in the pyproject.toml.
+It has a number of dependencies, as specified in requirements.txt.
+For a full list of the packages and their licensing, see the [DEPENDENCIES.md](DEPENDENCIES.md) file.
+
+### External tools
+
+The Nanitor scanner depends on some external tools to enhance scanning capabilities. Each tool serves a specific purpose and is referenced directly for transparency and attribution:
+These tools need to be installed and ready to run in the environment.
+
+- **nmap**
+  - Purpose: Advanced port scanning, OS detection, and service fingerprinting.
+  - Project: [nmap/nmap on GitHub](https://github.com/nmap/nmap)
+  - Maintainer: Gordon Lyon (Fyodor) and the Nmap Project
+  - License: [Nmap Public Source License (based on GPLv2)](https://nmap.org/book/man-legal.html)
+  - NOTE: Since nmap cannot be redistributed under its license, you need to download it and prepare it onto your system. Link: https://nmap.org/download
+
+- **gobuster**
+  - Purpose: Fast directory brute-forcing for web servers using a minimal word list.
+  - Project: [OJ/gobuster on GitHub](https://github.com/OJ/gobuster)
+  - Maintainer: OJ Reeves ([@TheColonial](https://github.com/OJ))
+  - License: [Apache License 2.0](https://github.com/OJ/gobuster/blob/master/LICENSE)
+
+- **httpx**
+  - Purpose: Web discovery and probing for responsive HTTP servers.
+  - Project: [projectdiscovery/httpx on GitHub](https://github.com/projectdiscovery/httpx)
+  - Maintainer: ProjectDiscovery
+  - License: [MIT License](https://github.com/projectdiscovery/httpx/blob/master/LICENSE.md)
 
 ## Future Improvements
 

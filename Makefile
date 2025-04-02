@@ -2,7 +2,12 @@
 install:
 	python -m pip install --upgrade pip
 	pip install -r requirements.txt
-	pip install ruff black
+
+# Install with some additional tools needed in development
+install-dev:
+	python -m pip install --upgrade pip
+	pip install -r requirements.txt
+	pip install ruff black pip-licenses
 
 # Run linter (ruff)
 lint:
@@ -26,3 +31,8 @@ venv:
 	python3.11 -m venv venv
 	. venv/bin/activate && pip install --upgrade pip
 	. venv/bin/activate && make install
+
+update-deps-doc:
+	echo "# Python package dependencies used" > DEPENDENCIES.md
+	echo "" >> DEPENDENCIES.md
+	pip-licenses -f markdown >> DEPENDENCIES.md
