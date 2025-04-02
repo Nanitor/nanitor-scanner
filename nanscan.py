@@ -1654,7 +1654,6 @@ def snmp_scan(ip: str, port_results: dict | None = None) -> dict | None:
         except Exception as e:
             if VERBOSE_OUTPUT:
                 log_debug(f"[DEBUG] Failed SNMP scan on {ip} with community '{community}': {str(e)}")
-            continue
 
     if not snmp_results:
         if VERBOSE_OUTPUT:
