@@ -2,9 +2,9 @@
 install:
 	python -m pip install --upgrade pip
 	pip install -r requirements.txt
-	pip install ruff
+	pip install ruff black
 
-# Run linter
+# Run linter (ruff)
 lint:
 	ruff check .
 
@@ -12,11 +12,6 @@ lint:
 clean:
 	find . -type d -name "__pycache__" -exec rm -r {} +
 	find . -type f -name "*.pyc" -delete
-
-# Update dependencies
-update-deps:
-	pip install --upgrade -r requirements.txt
-	pip freeze > requirements.txt
 
 # Format code
 format:
@@ -28,6 +23,6 @@ outdated:
 
 # Create virtual environment
 venv:
-	python -m venv venv
+	python3.11 -m venv venv
 	. venv/bin/activate && pip install --upgrade pip
 	. venv/bin/activate && make install
