@@ -34,5 +34,6 @@ venv:
 
 update-deps-doc:
 	echo "# Python package dependencies used" > DEPENDENCIES.md
+	echo "NOTE: This includes both direct and indirect dependencies" >> DEPENDENCIES.md
 	echo "" >> DEPENDENCIES.md
 	pip-licenses -f markdown >> DEPENDENCIES.md
