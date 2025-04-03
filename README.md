@@ -113,7 +113,7 @@ To change the output folder, use `--out-dir`.
 ## Importing the results into Nanitor
 
 To import the scan results into Nanitor, after running, you need to
-set the environment variables pointing to your Nanitor instance's API key, for example:
+set the environment variables pointing to your Nanitor instance's API and API key, for example:
 ```
 export NANITOR_API_URL="https://my.nanitor.net/system_api"
 export NANITOR_API_KEY="Your API key with write permissions"
@@ -122,7 +122,7 @@ and then simply run
 ```
 python api.py import scan_results/nanitor_import.json --org-id <YOUR_ORGANIZATION_ID>
 ```
-this will import the results into the specified organization.
+This will import the results into the specified organization.
 
 For more information on API keys and obtaining them, see https://help.nanitor.com/97-rest-api/
 
