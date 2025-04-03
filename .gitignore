@@ -1,3 +1,5 @@
 venv
 templates
-scan_results
+scan_result*
+cleanenv
+*cache*

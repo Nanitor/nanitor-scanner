@@ -3,20 +3,6 @@ name = "nanitor-scanner"
 version = "0.1.0"
 description = "A comprehensive network scanner for network assessment and discovery"
 requires-python = ">=3.11"
-dependencies = [
-    "nmap",
-    "psutil",
-    "requests",
-    "scapy",
-    "mac-vendor-lookup",
-    "ping3",
-    "pysnmp",
-    "cryptography"
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 180
