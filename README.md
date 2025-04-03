@@ -17,10 +17,17 @@ A comprehensive network scanner for security assessments and discovery.
 ## System Requirements
 
 - Python 3.11
+
 - Nmap installed on your system
   - macOS: `brew install nmap`
   - Linux: `sudo apt-get install nmap` (Ubuntu/Debian) or `sudo yum install nmap` (RHEL/CentOS)
   - Others: Download from [Nmap's official website](https://nmap.org/download.html)
+
+- httpx installed on your system
+  - Releases can be downloaded from [httpx's GitHub releases](https://github.com/projectdiscovery/httpx/releases)
+
+- gobuster installed on your system
+  - Releases can be downloaded from [gobuster's GitHub releases](https://github.com/OJ/gobuster/releases)
 
 ## Installation
 
@@ -78,6 +85,7 @@ For a full list of the packages and their licensing, see the [DEPENDENCIES.md](D
 ### External tools
 
 The Nanitor scanner depends on some external tools to enhance scanning capabilities. Each tool serves a specific purpose and is referenced directly for transparency and attribution:
+
 These tools need to be installed and ready to run in the environment.
 
 - **nmap**
