@@ -14,16 +14,15 @@ A comprehensive network scanner for security assessments and discovery.
 - JSON results for further analysis
 - Nanitor import: Importing scan results into Nanitor
 
-## Requirements
+## System Requirements
 
-- **OS:** Linux (tested primarily on Linux)  
-- **Python:** 3.11 
-- **Privileges:** Root/admin required for some features
-- **Tools:** The external tools specified in Dependencies and External tools below need to be installed.
+- Python 3.11
+- Nmap installed on your system
+  - macOS: `brew install nmap`
+  - Linux: `sudo apt-get install nmap` (Ubuntu/Debian) or `sudo yum install nmap` (RHEL/CentOS)
+  - Others: Download from [Nmap's official website](https://nmap.org/download.html)
 
 ## Installation
-
-### From source
 
 1. Clone the repository:
 ```bash
@@ -49,7 +48,7 @@ pip install -r requirements.txt
 sudo -E python nanscan.py
 ```
 
-### Examples
+## Usage
 
 Scan the local network:
 ```bash
@@ -100,24 +99,32 @@ These tools need to be installed and ready to run in the environment.
   - Maintainer: ProjectDiscovery
   - License: [MIT License](https://github.com/projectdiscovery/httpx/blob/master/LICENSE.md)
 
-## Future Improvements
-
-- Unified Module Interface:
-Consider refactoring scan modules to use a unified ScanContext so that each module accepts consistent inputs and returns results keyed by host IP.
-
-- Additional Features:
-Future work may include packet sniffing (e.g., DHCP requests)
-
 ## Output
 
 Results are saved to the `scan_results` directory in the following structure:
 
-- `scan_results/summary.json`: Overall scan summary
 - `scan_results/nanitor_import.json`: Scan results ready for import via Nanitor API
+- `scan_results/summary.json`: Overall scan summary
 - `scan_results/{ip}`: Detailed scan results for each host and tool outputs
 - `scan_results/{ip}/scan_results.json`: Detailed scan results for each host
 
 To change the output folder, use `--out-dir`.
+
+## Importing the results into Nanitor
+
+To import the scan results into Nanitor, after running, you need to
+set the environment variables pointing to your Nanitor instance's API key, for example:
+```
+export NANITOR_API_URL="https://my.nanitor.net/system_api"
+export NANITOR_API_KEY="Your API key with write permissions"
+```
+and then simply run
+```
+python api.py import scan_results/nanitor_import.json --org-id <YOUR_ORGANIZATION_ID>
+```
+this will import the results into the specified organization.
+
+For more information on API keys and obtaining them, see https://help.nanitor.com/97-rest-api/
 
 ## Feedback
 
