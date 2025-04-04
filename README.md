@@ -84,9 +84,7 @@ For a full list of the packages and their licensing, see the [DEPENDENCIES.md](D
 
 ### External tools
 
-The Nanitor scanner depends on some external tools to enhance scanning capabilities. Each tool serves a specific purpose and is referenced directly for transparency and attribution:
-
-These tools need to be installed and ready to run in the environment.
+The Nanitor scanner depends on some external tools to enhance scanning capabilities. These tools need to be installed and ready to run in the environment. Each tool serves a specific purpose and is referenced directly for transparency and attribution:
 
 - **nmap**
   - Purpose: Advanced port scanning, OS detection, and service fingerprinting.
