@@ -1,0 +1,28 @@
+[project]
+name = "nanitor-scanner"
+version = "0.1.0"
+description = "A comprehensive network scanner for network assessment and discovery"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 180
+target-version = "py311"
+[tool.black]
+line-length = 180
+target-version = ['py311']
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "W293",  # Blank line contains whitespace
+    "I001",  # Import block is unsorted
+]
+

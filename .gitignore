@@ -1,0 +1,5 @@
+venv
+templates
+scan_result*
+cleanenv
+*cache*
