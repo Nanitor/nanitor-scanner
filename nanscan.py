@@ -1374,6 +1374,7 @@ Examples:
         help="Run in minimal mode (non-root): skips or degrades root-required modules like UDP and OS fingerprinting.",
     )
     parser.add_argument(
+        "-o",
         "--out-dir",
         default="scan_results",
         help="Directory to save scan results (default: scan_results/)",
