@@ -170,7 +170,7 @@ DEFAULT_TCP_PORTS = [
 DEFAULT_UDP_PORTS = [53, 67, 69, 123, 137, 161, 162, 500, 514, 520, 1900, 5353, 33434]
 DEFAULT_SNMP_PORT = 161
 DEFAULT_SSL_PORTS = [443, 8443]
-DEFAULT_INTERFACES = ["eth0", "wlan0", "en0"]
+DEFAULT_INTERFACES = ["eth0", "wlan0", "en0", "ens224", "ens33", "ens160", "ens192", "ens256"]
 
 # Global variables that can be modified by command line arguments
 THREAD_COUNT = DEFAULT_THREAD_COUNT
@@ -1374,6 +1374,7 @@ Examples:
         help="Run in minimal mode (non-root): skips or degrades root-required modules like UDP and OS fingerprinting.",
     )
     parser.add_argument(
+        "-o",
         "--out-dir",
         default="scan_results",
         help="Directory to save scan results (default: scan_results/)",
